@@ -765,7 +765,7 @@ app.post('/api/recipients/:token/submit', async (req, res) => {
               message: 'Please complete your portion of the PDF workflow.',
               recipientName: nextRecipient.recipient_name,
               workflowId: recipient.workflow_id,
-              workflowUuid: nextRecipientUrl
+              workflowUuid: nextRecipient.unique_token
             })
           });
         } catch (smsError) {
