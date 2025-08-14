@@ -1,0 +1,144 @@
+# Docker Compose for local development and testing
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: mve-postgres
+    environment:
+      POSTGRES_DB: mve_database
+      POSTGRES_USER: mve_user
+      POSTGRES_PASSWORD: mve_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - mve-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mve_user -d mve_database"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: mve-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mve-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+
+  # MVE Backend Application
+  mve-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: mve-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://mve_user:mve_password@postgres:5432/mve_database?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: super-secure-jwt-secret-for-development
+      SESSION_SECRET: super-secure-session-secret-for-development
+      LOG_LEVEL: info
+      CORS_ORIGIN: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173,http://localhost:8080
+      # AWS Configuration (set these in .env.local for real AWS access)
+      AWS_REGION: us-east-1
+      S3_BUCKET_DOCUMENTS: mve-zpaper-documents
+      S3_BUCKET_ATTACHMENTS: mve-zpaper-attachments
+      S3_BUCKET_STATIC: mve-zpaper-static
+      # Email Configuration (set SENDGRID_API_KEY in .env.local for real emails)
+      EMAIL_FROM: noreply@localhost
+      EMAIL_FROM_NAME: MVE Development
+      # Application URLs
+      BASE_URL: http://localhost:3000
+      API_BASE_URL: http://localhost:3000/api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - mve-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # LocalStack for S3 simulation (development only)
+  localstack:
+    image: localstack/localstack:latest
+    container_name: mve-localstack
+    environment:
+      SERVICES: s3
+      DEBUG: 1
+      DATA_DIR: /tmp/localstack/data
+      DOCKER_HOST: unix:///var/run/docker.sock
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/tmp/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - mve-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    profiles:
+      - development
+
+  # Nginx (for production-like setup)
+  nginx:
+    image: nginx:alpine
+    container_name: mve-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - mve-network
+    depends_on:
+      - mve-backend
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  localstack_data:
+    driver: local
+
+networks:
+  mve-network:
+    driver: bridge

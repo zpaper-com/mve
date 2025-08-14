@@ -1,0 +1,167 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["jsonProtocol"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Connection pooling configuration
+  directUrl = env("DIRECT_DATABASE_URL") // Direct connection for migrations
+}
+
+// Workflow session status enum
+enum WorkflowStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+// Recipient status enum  
+enum RecipientStatus {
+  PENDING
+  ACCESSED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+// Recipient type enum
+enum RecipientType {
+  PRESCRIBER
+  PATIENT
+  PHARMACY
+  INSURANCE
+  CUSTOM
+}
+
+model WorkflowSession {
+  id          String         @id @default(uuid()) @db.Uuid
+  documentUrl String         @map("document_url") @db.VarChar(500)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  status      WorkflowStatus @default(ACTIVE)
+  expiresAt   DateTime?      @map("expires_at")
+  metadata    Json?          @db.JsonB
+  
+  // Workflow tracking fields
+  currentRecipientOrder Int?    @map("current_recipient_order")
+  totalRecipients      Int     @default(0) @map("total_recipients")
+  completedRecipients  Int     @default(0) @map("completed_recipients")
+  
+  // Audit fields
+  createdBy   String? @map("created_by") @db.VarChar(255)
+  lastAccess  DateTime? @map("last_access")
+
+  // Relations
+  recipients  Recipient[]
+  attachments Attachment[]
+
+  @@map("workflow_sessions")
+  // Optimized indexes for performance
+  @@index([status, createdAt], name: "idx_workflow_status_created")
+  @@index([expiresAt], name: "idx_workflow_expires", where: { expiresAt: { not: null } })
+  @@index([lastAccess], name: "idx_workflow_last_access", where: { lastAccess: { not: null } })
+  @@index([currentRecipientOrder], name: "idx_workflow_current_recipient")
+}
+
+model Recipient {
+  id            String          @id @default(uuid()) @db.Uuid
+  sessionId     String          @map("session_id") @db.Uuid
+  orderIndex    Int             @map("order_index")
+  recipientType RecipientType   @map("recipient_type")
+  partyName     String?         @map("party_name") @db.VarChar(255)
+  email         String?         @db.VarChar(320) // RFC 5321 max length
+  mobile        String?         @db.VarChar(20)
+  npi           String?         @db.VarChar(10)
+  uniqueUrl     String          @unique @map("unique_url") @db.VarChar(100)
+  status        RecipientStatus @default(PENDING)
+  accessedAt    DateTime?       @map("accessed_at")
+  completedAt   DateTime?       @map("completed_at")
+  expiresAt     DateTime?       @map("expires_at")
+  formData      Json?           @map("form_data") @db.JsonB
+  createdAt     DateTime        @default(now()) @map("created_at")
+  
+  // Error tracking
+  errorMessage  String?         @map("error_message") @db.Text
+  retryCount    Int             @default(0) @map("retry_count")
+  
+  // Notification tracking
+  emailSentAt   DateTime?       @map("email_sent_at")
+  smsSentAt     DateTime?       @map("sms_sent_at")
+  reminderCount Int             @default(0) @map("reminder_count")
+
+  // Relations
+  session             WorkflowSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  uploadedAttachments Attachment[]    @relation("UploadedBy")
+
+  @@map("recipients")
+  // High-performance indexes for common queries
+  @@unique([sessionId, orderIndex], name: "uniq_session_order")
+  @@index([uniqueUrl], name: "idx_recipient_unique_url") // Most critical for lookups
+  @@index([status, sessionId], name: "idx_recipient_status_session")
+  @@index([sessionId, orderIndex], name: "idx_recipient_session_order")
+  @@index([expiresAt], name: "idx_recipient_expires", where: { expiresAt: { not: null } })
+  @@index([email], name: "idx_recipient_email", where: { email: { not: null } })
+  @@index([mobile], name: "idx_recipient_mobile", where: { mobile: { not: null } })
+  @@index([npi], name: "idx_recipient_npi", where: { npi: { not: null } })
+}
+
+model Attachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @map("session_id") @db.Uuid
+  recipientId String?  @map("recipient_id") @db.Uuid
+  fileName    String   @map("file_name") @db.VarChar(255)
+  fileType    String   @map("file_type") @db.VarChar(100)
+  fileSize    Int      @map("file_size")
+  s3Key       String   @unique @map("s3_key") @db.VarChar(500)
+  s3Bucket    String   @map("s3_bucket") @db.VarChar(100)
+  uploadedAt  DateTime @default(now()) @map("uploaded_at")
+  uploadedBy  String?  @map("uploaded_by") @db.Uuid
+  
+  // File validation
+  checksum    String?  @map("checksum") @db.VarChar(64) // SHA-256
+  scanStatus  String?  @map("scan_status") @db.VarChar(50) // virus scan status
+  
+  // Access tracking
+  downloadCount Int     @default(0) @map("download_count")
+  lastDownload  DateTime? @map("last_download")
+
+  // Relations
+  session   WorkflowSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  recipient Recipient?      @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  uploader  Recipient?      @relation("UploadedBy", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@map("attachments")
+  // Optimized indexes for attachment queries
+  @@index([sessionId, uploadedAt], name: "idx_attachment_session_uploaded")
+  @@index([recipientId], name: "idx_attachment_recipient", where: { recipientId: { not: null } })
+  @@index([uploadedBy], name: "idx_attachment_uploader", where: { uploadedBy: { not: null } })
+  @@index([fileType], name: "idx_attachment_file_type")
+  @@index([uploadedAt], name: "idx_attachment_uploaded_at")
+  @@index([s3Key], name: "idx_attachment_s3_key")
+}
+
+// Audit log table for tracking all workflow events
+model WorkflowAuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @map("session_id") @db.Uuid
+  recipientId String?  @map("recipient_id") @db.Uuid
+  eventType   String   @map("event_type") @db.VarChar(50)
+  eventData   Json?    @map("event_data") @db.JsonB
+  ipAddress   String?  @map("ip_address") @db.Inet
+  userAgent   String?  @map("user_agent") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  @@map("workflow_audit_logs")
+  @@index([sessionId, createdAt], name: "idx_audit_session_created")
+  @@index([recipientId, createdAt], name: "idx_audit_recipient_created", where: { recipientId: { not: null } })
+  @@index([eventType, createdAt], name: "idx_audit_event_type_created")
+  @@index([createdAt], name: "idx_audit_created_at")
+}
