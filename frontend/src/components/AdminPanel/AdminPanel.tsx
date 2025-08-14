@@ -498,12 +498,17 @@ MVE PDF Workflow System`,
                                 <Chip label={recipient.status} size="small" color={getStatusColor(recipient.status) as any} />
                               </TableCell>
                               <TableCell>
-                                {recipient.recipient_type === 'PRESCRIBER' ? (
+                                {recipient.recipient_type === 'PRESCRIBER' || recipient.recipient_type === 'PATIENT' ? (
                                   (() => {
                                     // Look for signature in form data history
                                     const recipientSubmission = workflow.formDataHistory?.find(
                                       (submission: any) => submission.recipient_name === recipient.recipient_name
                                     );
+                                    
+                                    // Debug: Log recipient matching
+                                    console.log('🔍 Looking for recipient:', recipient.recipient_name);
+                                    console.log('🔍 Available submissions:', workflow.formDataHistory?.map(s => s.recipient_name));
+                                    console.log('🔍 Found submission:', !!recipientSubmission);
                                     
                                     // Debug logging for signature detection
                                     if (recipient.recipient_type === 'PRESCRIBER' || recipient.recipient_type === 'PATIENT') {
