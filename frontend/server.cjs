@@ -367,7 +367,11 @@ This is an automated message from MVE PDF Workflow System.
 // Create workflow endpoint
 app.post('/api/workflows', async (req, res) => {
   try {
-    const { recipients, documentUrl, metadata } = req.body;
+    const { recipients, documentUrl, metadata, initialFormData } = req.body;
+    console.log('📥 Received workflow request with initialFormData:', initialFormData ? 'YES' : 'NO');
+    if (initialFormData) {
+      console.log('📋 Initial form data keys:', Object.keys(initialFormData));
+    }
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return res.status(400).json({
@@ -394,10 +398,24 @@ app.post('/api/workflows', async (req, res) => {
       
       const savedRecipient = await db.addRecipient(workflow.id, recipientData);
       savedRecipients.push(savedRecipient);
+      
+      // Save initial form data to the first recipient if provided
+      if (i === 0 && initialFormData && Object.keys(initialFormData).length > 0) {
+        try {
+          // Pass false for updateSubmittedAt since this is initial data, not a submission
+          await db.updateRecipientFormData(savedRecipient.id, initialFormData, false);
+          console.log(`📋 Initial form data saved for first recipient ${savedRecipient.recipientName}:`, initialFormData);
+        } catch (formDataError) {
+          console.warn('⚠️ Failed to save initial form data:', formDataError);
+        }
+      }
     }
 
     console.log(`✅ Workflow created: ${workflow.id} (UUID: ${workflowUuid})`);
     console.log(`👥 Recipients added: ${savedRecipients.length}`);
+    if (initialFormData && Object.keys(initialFormData).length > 0) {
+      console.log(`📋 Initial form data included: ${Object.keys(initialFormData).length} fields`);
+    }
 
     res.json({
       success: true,

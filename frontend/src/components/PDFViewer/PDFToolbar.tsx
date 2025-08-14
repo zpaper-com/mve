@@ -297,7 +297,8 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
 
       <SendToDialog 
         open={sendToOpen} 
-        onClose={() => setSendToOpen(false)} 
+        onClose={() => setSendToOpen(false)}
+        initialFormData={getCurrentFormData ? getCurrentFormData() : {}}
       />
       
       <AttachmentDialog 

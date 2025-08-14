@@ -166,12 +166,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   // Auto-resize PDF to fit canvas width
   const autoResizePDFToCanvas = useCallback(async (document: PDFDocumentProxy) => {
     try {
-      console.log('🚀 Auto-resize function called');
       const canvas = canvasRef.current;
       const container = containerRef.current;
       
       if (!canvas || !container || !document) {
-        console.log('⚠️ Auto-resize skipped:', { canvas: !!canvas, container: !!container, document: !!document });
         return;
       }
 
@@ -194,7 +192,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       // Convert scale to zoom percentage
       const zoomPercentage = Math.round(optimalScale * 100);
       
-      console.log(`📐 Auto-resize: PDF ${viewport.width}x${viewport.height}, Container ${availableWidth}px, Scale ${optimalScale.toFixed(2)}, Zoom ${zoomPercentage}%`);
       
       // Update zoom level in the store (this will trigger re-rendering)  
       const { setZoomLevel } = usePDFStore.getState();
@@ -205,7 +202,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       }
       
     } catch (error) {
-      console.warn('⚠️ Auto-resize failed:', error);
+      console.warn('Auto-resize failed:', error);
     }
   }, [onZoomChange]);
 
@@ -213,11 +210,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   useEffect(() => {
     const loadPDF = async () => {
       if (!pdfData) {
-        console.log('⏳ Waiting for PDF data...');
         return;
       }
-      
-      console.log('📄 Starting PDF document load, data size:', pdfData.byteLength);
       setLoading(true);
       setError(null);
       
@@ -241,10 +235,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         
         // Add progress handler
         loadingTask.onProgress = (progressData: any) => {
-          console.log('📊 PDF loading progress:', progressData.loaded, '/', progressData.total);
         };
         
-        console.log('⏳ Awaiting PDF document promise...');
         
         // Add timeout to prevent hanging
         const doc = await Promise.race([
@@ -253,7 +245,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
             setTimeout(() => reject(new Error('PDF loading timeout after 10 seconds')), 10000)
           )
         ]) as any;
-        console.log('✅ PDF document loaded, pages:', doc.numPages);
         setPdfDocument(doc);
         setTotalPages(doc.numPages);
         setCurrentPage(1);
@@ -269,7 +260,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           onLoad(doc);
         }
       } catch (err) {
-        console.error('❌ PDF document load error:', err);
+        console.error('PDF document load error:', err);
         setError(`Failed to load PDF: ${err}`);
         if (onError) {
           onError(err as Error);
@@ -453,6 +444,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
               
               // Handle form fields
               if (annotation.subtype === 'Widget') {
+                
                 // Skip signature fields
                 if (annotation.fieldType === 'Sig' || 
                     (annotation.fieldName && (
@@ -492,16 +484,18 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     (inputElement as HTMLInputElement).type = 'text';
                   }
                   if (inputElement) {
-                    // Use existing workflow data if available, otherwise use annotation default
-                    const existingValue = allWorkflowFormData[annotation.fieldName || ''] || annotation.fieldValue || '';
-                    (inputElement as HTMLInputElement | HTMLTextAreaElement).value = existingValue;
+                    // Use existing workflow data if available and in workflow context, otherwise use annotation default
+                    const existingValue = (workflowContext?.isWorkflowContext && allWorkflowFormData && annotation.fieldName) ? 
+                      (allWorkflowFormData[annotation.fieldName] || annotation.fieldValue || '') : 
+                      (annotation.fieldValue || '');
+                    (inputElement as HTMLInputElement | HTMLTextAreaElement).value = String(existingValue);
                     (inputElement as HTMLInputElement | HTMLTextAreaElement).name = annotation.fieldName || '';
                     if (annotation.maxLen) {
                       (inputElement as HTMLInputElement | HTMLTextAreaElement).maxLength = annotation.maxLen;
                     }
                     
-                    // Update current form data with the existing value
-                    if (annotation.fieldName && existingValue) {
+                    // Update current form data with the existing value only if in workflow context and there's a value
+                    if (annotation.fieldName && existingValue && workflowContext?.isWorkflowContext) {
                       setCurrentFormData(prev => ({
                         ...prev,
                         [annotation.fieldName]: existingValue
@@ -514,8 +508,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                   inputElement = document.createElement('input');
                   (inputElement as HTMLInputElement).type = 'checkbox';
                   
-                  // Use existing workflow data if available
-                  const existingValue = allWorkflowFormData[annotation.fieldName || ''];
+                  // Use existing workflow data if available and in workflow context
+                  const existingValue = (workflowContext?.isWorkflowContext && allWorkflowFormData && annotation.fieldName) ? 
+                    allWorkflowFormData[annotation.fieldName] : undefined;
                   const isChecked = existingValue !== undefined ? 
                     (existingValue === true || existingValue === 'Yes' || existingValue === 'true') :
                     (annotation.fieldValue === 'Yes' || annotation.fieldValue === true);
@@ -523,8 +518,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                   (inputElement as HTMLInputElement).checked = isChecked;
                   (inputElement as HTMLInputElement).name = annotation.fieldName || '';
                   
-                  // Update current form data with the existing value
-                  if (annotation.fieldName) {
+                  // Update current form data with the existing value only in workflow context
+                  if (annotation.fieldName && workflowContext?.isWorkflowContext) {
                     setCurrentFormData(prev => ({
                       ...prev,
                       [annotation.fieldName]: isChecked
@@ -538,16 +533,17 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                   (inputElement as HTMLInputElement).name = annotation.fieldName || '';
                   (inputElement as HTMLInputElement).value = annotation.buttonValue || '';
                   
-                  // Use existing workflow data if available
-                  const existingValue = allWorkflowFormData[annotation.fieldName || ''];
+                  // Use existing workflow data if available and in workflow context
+                  const existingValue = (workflowContext?.isWorkflowContext && allWorkflowFormData && annotation.fieldName) ? 
+                    allWorkflowFormData[annotation.fieldName] : undefined;
                   const isChecked = existingValue !== undefined ? 
                     existingValue === annotation.buttonValue :
                     annotation.fieldValue === annotation.buttonValue;
                   
                   (inputElement as HTMLInputElement).checked = isChecked;
                   
-                  // Update current form data with the existing value
-                  if (annotation.fieldName && isChecked) {
+                  // Update current form data with the existing value only in workflow context
+                  if (annotation.fieldName && isChecked && workflowContext?.isWorkflowContext) {
                     setCurrentFormData(prev => ({
                       ...prev,
                       [annotation.fieldName]: annotation.buttonValue
@@ -559,8 +555,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                   inputElement = document.createElement('select');
                   (inputElement as HTMLSelectElement).name = annotation.fieldName || '';
                   
-                  // Use existing workflow data if available
-                  const existingValue = allWorkflowFormData[annotation.fieldName || ''] || annotation.fieldValue;
+                  // Use existing workflow data if available and in workflow context
+                  const existingValue = (workflowContext?.isWorkflowContext && allWorkflowFormData && annotation.fieldName) ? 
+                    (allWorkflowFormData[annotation.fieldName] || annotation.fieldValue) : 
+                    annotation.fieldValue;
                   
                   if (annotation.options) {
                     for (const option of annotation.options) {
@@ -574,8 +572,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     }
                   }
                   
-                  // Update current form data with the existing value
-                  if (annotation.fieldName && existingValue) {
+                  // Update current form data with the existing value only in workflow context
+                  if (annotation.fieldName && existingValue && workflowContext?.isWorkflowContext) {
                     setCurrentFormData(prev => ({
                       ...prev,
                       [annotation.fieldName]: existingValue
@@ -663,7 +661,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       
       // Auto-resize on first render when refs are available
       if (pdfDocument && !hasAutoResized && currentPage === 1) {
-        console.log('🎯 Calling auto-resize after first render');
         setHasAutoResized(true);
         await autoResizePDFToCanvas(pdfDocument);
       }
@@ -685,7 +682,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     autoResizePDFToCanvas,
     setFormFields,
     onFormDataChange,
-    setError
+    setError,
+    allWorkflowFormData,
+    workflowContext
   ]);
 
   // Render current page with debouncing for zoom changes
@@ -785,6 +784,50 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [currentPage, pdfDocument, setCurrentPage]);
 
+  // Load existing workflow form data only when in workflow context
+  React.useEffect(() => {
+    if (workflowContext?.isWorkflowContext && workflowContext?.workflowData?.workflow?.id) {
+      const loadWorkflowFormData = async () => {
+        try {
+          const response = await fetch(`/api/workflows/${workflowContext.workflowData.workflow.id}/form-data`);
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.formDataHistory) {
+              // Merge all form data from previous submissions
+              const mergedFormData: Record<string, any> = {};
+              result.formDataHistory.forEach((submission: any) => {
+                Object.assign(mergedFormData, submission.form_data);
+              });
+              setAllWorkflowFormData(mergedFormData);
+            } else {
+              setAllWorkflowFormData({});
+            }
+          } else {
+            console.warn('Failed to fetch workflow form data:', response.status);
+            setAllWorkflowFormData({});
+          }
+        } catch (error) {
+          console.warn('Failed to load workflow form data:', error);
+          setAllWorkflowFormData({});
+        }
+      };
+      
+      loadWorkflowFormData();
+    } else {
+      // Clear form data when not in workflow context
+      setAllWorkflowFormData({});
+      setCurrentFormData({});
+    }
+  }, [workflowContext?.isWorkflowContext, workflowContext?.workflowData?.workflow?.id]);
+
+  // Expose form data to parent components
+  React.useEffect(() => {
+    if (workflowContext && Object.keys(currentFormData).length > 0) {
+      // Store form data in a way that can be accessed by toolbar
+      (window as any).currentPDFFormData = currentFormData;
+    }
+  }, [currentFormData, workflowContext]);
+
   if (isLoading) {
     return (
       <Box 
@@ -822,41 +865,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       </Box>
     );
   }
-
-  // Load existing workflow form data
-  React.useEffect(() => {
-    if (workflowContext?.workflowData?.workflow?.id) {
-      const loadWorkflowFormData = async () => {
-        try {
-          const response = await fetch(`/api/workflows/${workflowContext.workflowData.workflow.id}/form-data`);
-          if (response.ok) {
-            const result = await response.json();
-            if (result.success && result.formDataHistory) {
-              // Merge all form data from previous submissions
-              const mergedFormData: Record<string, any> = {};
-              result.formDataHistory.forEach((submission: any) => {
-                Object.assign(mergedFormData, submission.form_data);
-              });
-              setAllWorkflowFormData(mergedFormData);
-              console.log('📋 Loaded existing workflow form data:', mergedFormData);
-            }
-          }
-        } catch (error) {
-          console.warn('Failed to load workflow form data:', error);
-        }
-      };
-      
-      loadWorkflowFormData();
-    }
-  }, [workflowContext?.workflowData?.workflow?.id]);
-
-  // Expose form data to parent components
-  React.useEffect(() => {
-    if (workflowContext && Object.keys(currentFormData).length > 0) {
-      // Store form data in a way that can be accessed by toolbar
-      (window as any).currentPDFFormData = currentFormData;
-    }
-  }, [currentFormData, workflowContext]);
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

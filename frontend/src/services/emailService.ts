@@ -25,14 +25,12 @@ class EmailService {
    */
   async sendEmail(request: SendEmailRequest): Promise<SendEmailResponse> {
     try {
-      console.log('📧 Sending email:', request);
       
       const response = await axios.post<SendEmailResponse>(`${this.baseURL}/send-email`, request);
       
-      console.log('✅ Email sent successfully:', response.data);
       return response.data;
     } catch (error) {
-      console.error('❌ Failed to send email:', error);
+      console.error('Failed to send email:', error);
       
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;

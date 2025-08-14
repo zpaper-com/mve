@@ -50,8 +50,8 @@ interface WorkflowData {
 const PDFViewerDemo: React.FC = () => {
   const { uuid } = useParams<{ uuid?: string }>();
   
-  // Using the requested Merx PDF
-  const [pdfUrl] = useState('/merx.pdf');
+  // Using the requested Merx PDF (use remote URL to match MerxPDFViewer)
+  const [pdfUrl] = useState('https://qr.md/kb/books/merx.pdf');
   const [enableVirtualScrolling, setEnableVirtualScrolling] = useState(true);
   const [enableFormInteraction, setEnableFormInteraction] = useState(true);
   const [documentInfo, setDocumentInfo] = useState<any>(null);
@@ -99,7 +99,6 @@ const PDFViewerDemo: React.FC = () => {
         setIsLastRecipient(data.recipient.position.isLast);
         setCurrentRecipientToken(data.recipient.uniqueToken);
         
-        console.log(`🔑 Recipient context: ${data.recipient.name} (${data.recipient.position.current + 1}/${data.recipient.position.total}), isLast: ${data.recipient.position.isLast}`);
       } else {
         console.error('Failed to fetch recipient data:', response.statusText);
         setErrorInfo('Failed to load recipient information');

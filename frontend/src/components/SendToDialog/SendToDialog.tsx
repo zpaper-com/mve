@@ -53,6 +53,7 @@ interface SendToDialogProps {
   onClose: () => void;
   documentUrl?: string;
   onSuccess?: (workflowId: string) => void;
+  initialFormData?: Record<string, any>;
 }
 
 const steps = ['Add Recipients', 'Review & Send'];
@@ -61,7 +62,8 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
   open, 
   onClose, 
   documentUrl = 'https://qr.md/kb/books/merx.pdf',
-  onSuccess 
+  onSuccess,
+  initialFormData = {}
 }) => {
   const [activeStep, setActiveStep] = useState(0);
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
@@ -248,6 +250,7 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
     
     try {
       logger.info('Submitting workflow with data:', data);
+      logger.info('Initial form data:', Object.keys(initialFormData).length > 0 ? initialFormData : 'No form data');
       
       // Step 1: Create workflow in database first
       logger.info('Creating workflow...');
@@ -269,6 +272,7 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
             createdBy: 'frontend-user',
             source: 'sendto-dialog',
           },
+          initialFormData: Object.keys(initialFormData).length > 0 ? initialFormData : undefined,
         }),
       });
       

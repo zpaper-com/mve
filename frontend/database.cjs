@@ -119,6 +119,10 @@ class Database {
         })
         .then(() => {
           console.log('✅ All indexes created successfully');
+          // Run migrations to add missing columns
+          return this.runMigrations();
+        })
+        .then(() => {
           // Initialize default templates
           return this.initializeDefaultTemplates();
         })
@@ -145,6 +149,48 @@ class Database {
             console.error(`❌ Error running query ${index + 1}:`, err);
             reject(err);
             return;
+          }
+          
+          index++;
+          runNext();
+        });
+      };
+      
+      runNext();
+    });
+  }
+
+  async runMigrations() {
+    return new Promise((resolve, reject) => {
+      const migrations = [
+        // Add form_data column to recipients table if it doesn't exist
+        `ALTER TABLE recipients ADD COLUMN form_data TEXT`,
+        // Add submitted_at column to recipients table if it doesn't exist
+        `ALTER TABLE recipients ADD COLUMN submitted_at DATETIME`
+      ];
+      
+      let index = 0;
+      
+      const runNext = () => {
+        if (index >= migrations.length) {
+          console.log('✅ All migrations completed successfully');
+          resolve();
+          return;
+        }
+        
+        const migration = migrations[index];
+        this.db.run(migration, (err) => {
+          if (err) {
+            // Ignore "duplicate column name" errors - column already exists
+            if (err.message.includes('duplicate column name')) {
+              console.log(`ℹ️ Migration ${index + 1} skipped - column already exists`);
+            } else {
+              console.error(`❌ Error running migration ${index + 1}:`, err);
+              reject(err);
+              return;
+            }
+          } else {
+            console.log(`✅ Migration ${index + 1} completed successfully`);
           }
           
           index++;
@@ -294,20 +340,26 @@ class Database {
     });
   }
 
-  async updateRecipientFormData(recipientId, formData) {
+  async updateRecipientFormData(recipientId, formData, updateSubmittedAt = true) {
     return new Promise((resolve, reject) => {
       const formDataJson = JSON.stringify(formData);
-      this.db.run(
-        `UPDATE recipients SET form_data = ?, submitted_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [formDataJson, recipientId],
-        function(err) {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve({ changes: this.changes });
+      
+      // Choose query based on whether to update submitted_at
+      const query = updateSubmittedAt 
+        ? `UPDATE recipients SET form_data = ?, submitted_at = CURRENT_TIMESTAMP WHERE id = ?`
+        : `UPDATE recipients SET form_data = ? WHERE id = ?`;
+      
+      const params = updateSubmittedAt 
+        ? [formDataJson, recipientId] 
+        : [formDataJson, recipientId];
+      
+      this.db.run(query, params, function(err) {
+        if (err) {
+          reject(err);
+          return;
         }
-      );
+        resolve({ changes: this.changes });
+      });
     });
   }
 

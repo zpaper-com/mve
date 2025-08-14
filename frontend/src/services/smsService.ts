@@ -40,14 +40,12 @@ class SMSService {
    */
   async sendSMS(request: SendSMSRequest): Promise<SendSMSResponse> {
     try {
-      console.log('📱 Sending SMS:', request);
       
       const response = await axios.post<SendSMSResponse>(`${this.baseURL}/send-sms`, request);
       
-      console.log('✅ SMS sent successfully:', response.data);
       return response.data;
     } catch (error) {
-      console.error('❌ Failed to send SMS:', error);
+      console.error('Failed to send SMS:', error);
       
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;
@@ -97,7 +95,7 @@ class SMSService {
       const response = await axios.get<SMSServerStatus>(`${this.baseURL}/health`);
       return response.data;
     } catch (error) {
-      console.error('❌ SMS server health check failed:', error);
+      console.error('SMS server health check failed:', error);
       return {
         status: 'ERROR',
         timestamp: new Date().toISOString(),
@@ -114,7 +112,7 @@ class SMSService {
       const response = await axios.get<TwilioStatus>(`${this.baseURL}/twilio-status`);
       return response.data;
     } catch (error) {
-      console.error('❌ Twilio status check failed:', error);
+      console.error('Twilio status check failed:', error);
       
       if (axios.isAxiosError(error)) {
         const errorData = error.response?.data;

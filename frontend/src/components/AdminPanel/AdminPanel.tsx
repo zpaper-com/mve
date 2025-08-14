@@ -144,6 +144,8 @@ const AdminPanel: React.FC = () => {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [attachmentViewerOpen, setAttachmentViewerOpen] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<any>(null);
+  const [formDataDialogOpen, setFormDataDialogOpen] = useState(false);
+  const [selectedFormData, setSelectedFormData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
@@ -230,6 +232,11 @@ const AdminPanel: React.FC = () => {
   const handleViewAttachment = (attachment: any) => {
     setSelectedAttachment(attachment);
     setAttachmentViewerOpen(true);
+  };
+
+  const handleViewFormData = (formDataSubmission: any) => {
+    setSelectedFormData(formDataSubmission);
+    setFormDataDialogOpen(true);
   };
 
   const getStatusColor = (status: string) => {
@@ -532,7 +539,6 @@ MVE PDF Workflow System`,
                                 <TableCell>Type</TableCell>
                                 <TableCell>Submitted At</TableCell>
                                 <TableCell>Form Fields</TableCell>
-                                <TableCell>Actions</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -551,35 +557,32 @@ MVE PDF Workflow System`,
                                   </TableCell>
                                   <TableCell>{submission.submitted_at ? formatDate(submission.submitted_at) : '-'}</TableCell>
                                   <TableCell>
-                                    <Box sx={{ maxWidth: 300 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                       {Object.entries(submission.form_data).length > 0 ? (
-                                        <Box sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
-                                          {Object.entries(submission.form_data).slice(0, 3).map(([key, value]) => (
-                                            <div key={key}>
-                                              <strong>{key}:</strong> {String(value).substring(0, 50)}
-                                              {String(value).length > 50 ? '...' : ''}
-                                            </div>
-                                          ))}
-                                          {Object.entries(submission.form_data).length > 3 && (
-                                            <div>... and {Object.entries(submission.form_data).length - 3} more fields</div>
-                                          )}
-                                        </Box>
+                                        <>
+                                          <Chip 
+                                            label={`${Object.entries(submission.form_data).length} fields`}
+                                            size="small"
+                                            color="primary"
+                                            variant="outlined"
+                                          />
+                                          <Button
+                                            size="small"
+                                            variant="text"
+                                            onClick={() => handleViewFormData(submission)}
+                                          >
+                                            View Fields
+                                          </Button>
+                                        </>
                                       ) : (
-                                        'No form data'
+                                        <Chip 
+                                          label="No form data"
+                                          size="small"
+                                          color="default"
+                                          variant="outlined"
+                                        />
                                       )}
                                     </Box>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Button
-                                      size="small"
-                                      variant="outlined"
-                                      onClick={() => {
-                                        // Show detailed form data
-                                        alert(JSON.stringify(submission.form_data, null, 2));
-                                      }}
-                                    >
-                                      View Details
-                                    </Button>
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -817,6 +820,138 @@ MVE PDF Workflow System`,
         }}
         attachment={selectedAttachment}
       />
+
+      {/* Form Data Details Dialog */}
+      <Dialog
+        open={formDataDialogOpen}
+        onClose={() => setFormDataDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: { 
+            height: '80vh',
+            maxHeight: '600px',
+          },
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="h6" component="div">
+                Form Data Details
+              </Typography>
+              {selectedFormData && (
+                <Typography variant="body2" color="text.secondary">
+                  Submitted by {selectedFormData.recipient_name} ({recipientTypeConfig[selectedFormData.recipient_type as keyof typeof recipientTypeConfig]?.label || selectedFormData.recipient_type})
+                  {selectedFormData.submitted_at && ` on ${formatDate(selectedFormData.submitted_at)}`}
+                </Typography>
+              )}
+            </Box>
+            <IconButton 
+              onClick={() => setFormDataDialogOpen(false)}
+              sx={{ color: 'text.secondary' }}
+            >
+              <Cancel />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent dividers sx={{ p: 0 }}>
+          {selectedFormData && (
+            <Box sx={{ p: 3 }}>
+              {Object.keys(selectedFormData.form_data).length > 0 ? (
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>Field Name</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Value</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {Object.entries(selectedFormData.form_data).map(([fieldName, value]) => (
+                        <TableRow key={fieldName}>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                              {fieldName}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Box sx={{ maxWidth: 300, wordBreak: 'break-word' }}>
+                              {typeof value === 'boolean' ? (
+                                <Chip 
+                                  label={value ? 'Yes' : 'No'} 
+                                  color={value ? 'success' : 'default'}
+                                  size="small"
+                                />
+                              ) : (
+                                <Typography variant="body2">
+                                  {String(value) || <em style={{ color: '#999' }}>Empty</em>}
+                                </Typography>
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={typeof value} 
+                              size="small" 
+                              variant="outlined"
+                              color={
+                                typeof value === 'boolean' ? 'info' :
+                                typeof value === 'number' ? 'warning' :
+                                'default'
+                              }
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Alert severity="info">
+                  <Typography variant="body2">
+                    No form data was submitted by this recipient.
+                  </Typography>
+                </Alert>
+              )}
+
+              {/* Raw JSON view for debugging */}
+              <Box sx={{ mt: 3 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Raw JSON Data:
+                </Typography>
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 2, 
+                    backgroundColor: '#f5f5f5',
+                    maxHeight: 200,
+                    overflow: 'auto'
+                  }}
+                >
+                  <pre style={{ 
+                    margin: 0, 
+                    fontSize: '0.75rem', 
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {JSON.stringify(selectedFormData.form_data, null, 2)}
+                  </pre>
+                </Paper>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setFormDataDialogOpen(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

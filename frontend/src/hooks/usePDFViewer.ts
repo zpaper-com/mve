@@ -12,21 +12,18 @@ export const usePDFViewer = (pdfUrl: string) => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pdf-document', pdfUrl],
     queryFn: async () => {
-      console.log('📄 Loading PDF from URL:', pdfUrl);
       try {
         // Always use fetch for now to avoid service dependencies
         const response = await fetch(pdfUrl);
-        console.log('📄 PDF fetch response status:', response.status);
         
         if (!response.ok) {
           throw new Error(`Failed to load PDF: ${response.status} ${response.statusText}`);
         }
         
         const arrayBuffer = await response.arrayBuffer();
-        console.log('📄 PDF loaded, size:', arrayBuffer.byteLength, 'bytes');
         return arrayBuffer;
       } catch (err) {
-        console.error('❌ PDF loading error:', err);
+        console.error('PDF loading error:', err);
         throw err;
       }
     },
