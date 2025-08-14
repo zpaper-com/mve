@@ -660,6 +660,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                 
                 // Text fields
                 if (annotation.fieldType === 'Tx') {
+                  // Skip the kbup field - it should be hidden
+                  if (annotation.fieldName && annotation.fieldName.toLowerCase() === 'kbup') {
+                    continue;
+                  }
+                  
                   if (annotation.multiline) {
                     inputElement = document.createElement('textarea');
                     (inputElement as HTMLTextAreaElement).style.resize = 'none';
