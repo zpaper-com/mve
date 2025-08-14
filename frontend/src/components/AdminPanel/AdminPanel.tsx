@@ -515,34 +515,78 @@ MVE PDF Workflow System`,
                                       }
                                     }
                                     
-                                    const hasSignature = recipientSubmission?.form_data && 
-                                      Object.keys(recipientSubmission.form_data).some(key => 
-                                        key.toLowerCase().includes('signature') || 
-                                        key.toLowerCase().includes('prescriber') ||
-                                        key.toLowerCase().includes('sign') ||
-                                        key.toLowerCase().includes('auth')
-                                      ) && Object.values(recipientSubmission.form_data).some(value => 
+                                    // Find all signature fields for this recipient
+                                    const signatureFields = recipientSubmission?.form_data ? 
+                                      Object.entries(recipientSubmission.form_data).filter(([key, value]) => 
+                                        (key.toLowerCase().includes('signature') || 
+                                         key.toLowerCase().includes('prescriber') ||
+                                         key.toLowerCase().includes('sign') ||
+                                         key.toLowerCase().includes('auth')) &&
                                         typeof value === 'string' && value.startsWith('data:image/')
-                                      );
+                                      ) : [];
                                     
-                                    if (hasSignature) {
-                                      return (
-                                        <Button 
-                                          size="small" 
-                                          variant="outlined" 
-                                          color="success"
-                                          onClick={() => {
-                                            // Find the signature field and value
-                                            const signatureField = Object.entries(recipientSubmission.form_data).find(([key, value]) => 
-                                              (key.toLowerCase().includes('signature') || 
-                                               key.toLowerCase().includes('prescriber') ||
-                                               key.toLowerCase().includes('sign') ||
-                                               key.toLowerCase().includes('auth')) &&
-                                              typeof value === 'string' && value.startsWith('data:image/')
-                                            );
-                                            if (signatureField) {
+                                    if (signatureFields.length > 0) {
+                                      // For patients with multiple signatures, show buttons for each
+                                      if (signatureFields.length > 1) {
+                                        return (
+                                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                            {signatureFields.map(([fieldName, signatureData], index) => {
+                                              // Determine signature label based on field name
+                                              let label = 'Signature';
+                                              if (fieldName.toLowerCase().includes('auth')) {
+                                                label = fieldName.toLowerCase().includes('patient') ? 'Patient Auth' : 'Provider Auth';
+                                              } else if (fieldName.toLowerCase().includes('support')) {
+                                                label = 'Patient Support';
+                                              } else {
+                                                label = `Signature ${index + 1}`;
+                                              }
+                                              
+                                              return (
+                                                <Button
+                                                  key={fieldName}
+                                                  size="small"
+                                                  variant="outlined"
+                                                  color="success"
+                                                  sx={{ fontSize: '0.75rem', py: 0.5 }}
+                                                  onClick={() => {
+                                                    // Look for metadata
+                                                    const metadataKey = `${fieldName}_metadata`;
+                                                    const metadataString = recipientSubmission.form_data[metadataKey];
+                                                    let metadata = null;
+                                                    if (metadataString) {
+                                                      try {
+                                                        metadata = JSON.parse(metadataString);
+                                                      } catch (e) {
+                                                        console.warn('Failed to parse signature metadata:', e);
+                                                      }
+                                                    }
+                                                    
+                                                    setSelectedSignature({
+                                                      recipientName: recipient.recipient_name,
+                                                      fieldName: fieldName,
+                                                      signatureData: signatureData,
+                                                      metadata: metadata
+                                                    });
+                                                    setSignatureViewerOpen(true);
+                                                  }}
+                                                >
+                                                  {label}
+                                                </Button>
+                                              );
+                                            })}
+                                          </Box>
+                                        );
+                                      } else {
+                                        // Single signature - show simple button
+                                        const [fieldName, signatureData] = signatureFields[0];
+                                        return (
+                                          <Button 
+                                            size="small" 
+                                            variant="outlined" 
+                                            color="success"
+                                            onClick={() => {
                                               // Look for metadata
-                                              const metadataKey = `${signatureField[0]}_metadata`;
+                                              const metadataKey = `${fieldName}_metadata`;
                                               const metadataString = recipientSubmission.form_data[metadataKey];
                                               let metadata = null;
                                               if (metadataString) {
@@ -555,17 +599,17 @@ MVE PDF Workflow System`,
                                               
                                               setSelectedSignature({
                                                 recipientName: recipient.recipient_name,
-                                                fieldName: signatureField[0],
-                                                signatureData: signatureField[1],
+                                                fieldName: fieldName,
+                                                signatureData: signatureData,
                                                 metadata: metadata
                                               });
                                               setSignatureViewerOpen(true);
-                                            }
-                                          }}
-                                        >
-                                          View Signature
-                                        </Button>
-                                      );
+                                            }}
+                                          >
+                                            View Signature
+                                          </Button>
+                                        );
+                                      }
                                     } else if (recipient.status === 'completed') {
                                       return (
                                         <Typography variant="caption" color="text.secondary">
