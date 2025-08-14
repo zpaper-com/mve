@@ -562,15 +562,25 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                   if (isProvider() || isPatient()) {
                     // Determine signature field type
                     const fieldName = annotation.fieldName || '';
+                    // Provider signature is specifically the one with "Provider" or "Prescriber" in the name
+                    // or the one that starts with "erx-" (electronic prescription)
                     const isLastSignature = fieldName.toLowerCase().includes('prescriber') || 
                                           fieldName.toLowerCase().includes('provider') ||
                                           fieldName.toLowerCase().includes('signature3') ||
                                           fieldName.toLowerCase().includes('sig3') ||
-                                          fieldName.toLowerCase().includes('auth');
+                                          fieldName.toLowerCase().startsWith('erx-');
                     
                     const isPatientSignature = !isLastSignature; // First 2 signatures are for patients
                     
                     console.log('🔍 Signature field found:', fieldName, 'isLastSignature:', isLastSignature, 'isPatientSignature:', isPatientSignature);
+                    console.log('🔍 Field name analysis:', {
+                      fieldName,
+                      includesPrescriber: fieldName.toLowerCase().includes('prescriber'),
+                      includesProvider: fieldName.toLowerCase().includes('provider'),
+                      startsWithErx: fieldName.toLowerCase().startsWith('erx-'),
+                      includesSig3: fieldName.toLowerCase().includes('sig3'),
+                      includesSignature3: fieldName.toLowerCase().includes('signature3')
+                    });
                     
                     // Check if there's existing signature data from workflow
                     const existingSignature = workflowContext?.isWorkflowContext && allWorkflowFormData && fieldName ? 
