@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Box, CircularProgress, Alert, LinearProgress, Typography } from '@mui/material';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy, AnnotationData } from 'pdfjs-dist';
+import 'pdfjs-dist/web/pdf_viewer.css';
 import { usePDFStore } from '../../store';
 import { usePDFViewer } from '../../hooks/usePDFViewer';
 import { pdfFormService } from '../../services/pdfFormService';
@@ -75,7 +76,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const performanceServiceRef = useRef<ReturnType<typeof createPDFPerformanceService> | null>(null);
-  const formLayerRef = useRef<HTMLDivElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
+  const annotationLayerRef = useRef<HTMLDivElement>(null);
   const pageCache = useRef<Map<string, CachedPage>>(new Map());
   
   const {
@@ -217,10 +219,21 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       setError(null);
       
       try {
-        // Use proper configuration for PDF.js v3
+        // Use proper configuration for PDF.js v3 with form support
         const loadingTask = pdfjsLib.getDocument({
           data: pdfData,
           enableXfa: false,
+          isEvalSupported: false,
+          useSystemFonts: true,
+          fontExtraProperties: true,
+          disableAutoFetch: false,
+          disableCreateObjectURL: false,
+          disableFontFace: false,
+          disableRange: false,
+          disableStream: false,
+          cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
+          cMapPacked: true,
+          standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/standard_fonts/',
         });
         
         // Add progress handler
@@ -310,7 +323,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     }
   }, [zoomLevel]);
 
-  // Enhanced page rendering with caching and lazy loading
+  // Enhanced page rendering with native PDF.js form support
   const renderPage = useCallback(async () => {
     if (!pdfDocument || !canvasRef.current || pageRendering) return;
 
@@ -319,6 +332,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     try {
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
+      const textLayer = textLayerRef.current;
+      const annotationLayer = annotationLayerRef.current;
       
       if (!context) return;
 
@@ -326,7 +341,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       
       // Check cache first
       const cachedPage = getCachedPage(currentPage, scale);
-      if (cachedPage) {
+      if (cachedPage && !enableFormInteraction) {
         canvas.width = cachedPage.canvas.width;
         canvas.height = cachedPage.canvas.height;
         context.drawImage(cachedPage.canvas, 0, 0);
@@ -342,18 +357,108 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       // Clear canvas
       context.clearRect(0, 0, canvas.width, canvas.height);
 
+      // Clear annotation and text layers
+      if (textLayer) {
+        textLayer.innerHTML = '';
+        textLayer.style.width = canvas.width + 'px';
+        textLayer.style.height = canvas.height + 'px';
+      }
+      
+      if (annotationLayer) {
+        annotationLayer.innerHTML = '';
+        annotationLayer.style.width = canvas.width + 'px';
+        annotationLayer.style.height = canvas.height + 'px';
+      }
+
       const renderContext = {
         canvasContext: context,
         viewport: viewport,
+        enableWebGL: false,
+        renderInteractiveForms: enableFormInteraction,
       };
 
+      // Render PDF page
       await page.render(renderContext).promise;
       
-      // Hide signature fields after rendering
-      await hideSignatureFields(page);
+      // Render text layer if available
+      if (textLayer && enableFormInteraction) {
+        try {
+          const textContent = await page.getTextContent();
+          if (pdfjsLib.renderTextLayer) {
+            pdfjsLib.renderTextLayer({
+              textContent,
+              container: textLayer,
+              viewport,
+              textDivs: [],
+            });
+          }
+        } catch (textError) {
+          console.warn('Failed to render text layer:', textError);
+        }
+      }
+
+      // Render annotation layer (forms) if available
+      if (annotationLayer && enableFormInteraction) {
+        try {
+          const annotations = await page.getAnnotations();
+          
+          if (annotations.length > 0 && pdfjsLib.AnnotationLayer) {
+            // Create annotation layer parameters
+            const annotationLayerParams = {
+              viewport: viewport.clone({ dontFlip: true }),
+              div: annotationLayer,
+              annotations,
+              page,
+              linkService: {
+                externalLinkEnabled: false,
+                externalLinkTarget: null,
+                externalLinkRel: null,
+                isInPDFForm: true,
+              },
+              downloadManager: null,
+              imageResourcesPath: '',
+              renderInteractiveForms: true,
+              enableScripting: false,
+              hasJSActions: false,
+              fieldObjects: null,
+            };
+
+            pdfjsLib.AnnotationLayer.render(annotationLayerParams);
+            
+            // Extract form fields for state management
+            if (annotations.some(ann => ann.subtype === 'Widget')) {
+              try {
+                const formFields = await pdfFormService.extractFormFields(pdfDocument);
+                setFormFields(formFields);
+                
+                // Add event listeners for form field changes
+                const formElements = annotationLayer.querySelectorAll('input, select, textarea');
+                formElements.forEach((element: any) => {
+                  const fieldName = element.name || element.getAttribute('data-field-name');
+                  if (fieldName && onFormDataChange) {
+                    element.addEventListener('change', (e: any) => {
+                      const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+                      onFormDataChange({ [fieldName]: value });
+                    });
+                  }
+                });
+              } catch (formError) {
+                console.warn('Failed to extract form fields:', formError);
+              }
+            }
+            
+            // Hide signature fields
+            await hideSignatureFields(page);
+          }
+        } catch (annotationError) {
+          console.warn('Failed to render annotation layer:', annotationError);
+        }
+      }
       
-      // Cache the rendered page
-      setCachedPage(currentPage, scale, canvas);
+      // Cache the rendered page (without forms for performance)
+      if (!enableFormInteraction) {
+        setCachedPage(currentPage, scale, canvas);
+      }
       
       // Auto-resize on first render when refs are available
       if (pdfDocument && !hasAutoResized && currentPage === 1) {
@@ -367,7 +472,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     } finally {
       setPageRendering(false);
     }
-  }, [pdfDocument, currentPage, zoomLevel, pageRendering, setError, getCachedPage, setCachedPage, hideSignatureFields, hasAutoResized, autoResizePDFToCanvas]);
+  }, [pdfDocument, currentPage, zoomLevel, pageRendering, enableFormInteraction, setError, getCachedPage, setCachedPage, hideSignatureFields, hasAutoResized, autoResizePDFToCanvas, setFormFields]);
 
   // Render current page
   useEffect(() => {
@@ -536,7 +641,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
               </Box>
             </Box>
           ) : (
-            // Traditional single page mode
+            // Traditional single page mode with native PDF.js layers
             <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
               {pageRendering && (
                 <Box
@@ -545,7 +650,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     top: '50%',
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
-                    zIndex: 1,
+                    zIndex: 1000,
                     backgroundColor: 'rgba(255, 255, 255, 0.8)',
                     borderRadius: 1,
                     p: 2,
@@ -555,67 +660,59 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                 </Box>
               )}
               
-              <canvas
-                ref={canvasRef}
-                style={{
-                  maxWidth: '100%',
-                  height: 'auto',
-                  border: '1px solid #ccc',
-                  backgroundColor: 'white',
-                  boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-                  cursor: pageRendering ? 'wait' : 'default',
-                  opacity: pageRendering ? 0.7 : 1,
-                  transition: 'opacity 0.2s ease',
-                }}
-              />
-
-              {/* Form Layer Overlay */}
-              {enableFormInteraction && formFields.length > 0 && !virtualScrollEnabled && (
-                <Box
-                  ref={formLayerRef}
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    pointerEvents: 'auto',
-                    zIndex: 10,
+              <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                {/* PDF Canvas */}
+                <canvas
+                  ref={canvasRef}
+                  style={{
+                    display: 'block',
+                    maxWidth: '100%',
+                    height: 'auto',
+                    border: '1px solid #ccc',
+                    backgroundColor: 'white',
+                    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                    cursor: pageRendering ? 'wait' : 'default',
+                    opacity: pageRendering ? 0.7 : 1,
+                    transition: 'opacity 0.2s ease',
                   }}
-                >
-                  {/* Form fields would be rendered here based on current page */}
-                  {formFields
-                    .filter(field => field.page === currentPage)
-                    .map(field => (
-                      <Box
-                        key={field.id}
-                        sx={{
-                          position: 'absolute',
-                          left: `${field.rect[0] * (zoomLevel / 100)}px`,
-                          top: `${field.rect[1] * (zoomLevel / 100)}px`,
-                          width: `${(field.rect[2] - field.rect[0]) * (zoomLevel / 100)}px`,
-                          height: `${(field.rect[3] - field.rect[1]) * (zoomLevel / 100)}px`,
-                          border: '2px solid rgba(25, 118, 210, 0.3)',
-                          backgroundColor: 'rgba(25, 118, 210, 0.1)',
-                          borderRadius: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.75rem',
-                          color: 'primary.main',
-                          cursor: 'pointer',
-                        }}
-                        title={`${field.type} field: ${field.name}`}
-                        onClick={() => {
-                          // Handle field interaction
-                          console.log('Field clicked:', field);
-                        }}
-                      >
-                        {field.type}
-                      </Box>
-                    ))}
-                </Box>
-              )}
+                />
+
+                {/* Text Layer for text selection and forms */}
+                {enableFormInteraction && (
+                  <div
+                    ref={textLayerRef}
+                    className="textLayer"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      overflow: 'hidden',
+                      opacity: 0.2,
+                      lineHeight: 1,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
+
+                {/* Annotation Layer for interactive forms */}
+                {enableFormInteraction && (
+                  <div
+                    ref={annotationLayerRef}
+                    className="annotationLayer"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      pointerEvents: 'auto',
+                      zIndex: 10,
+                    }}
+                  />
+                )}
+              </Box>
             </Box>
           )}
 

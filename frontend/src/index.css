@@ -68,3 +68,165 @@ textarea:focus-visible {
   outline: 2px solid #1976d2;
   outline-offset: 2px;
 }
+
+/* PDF.js annotation layer styles */
+.annotationLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.annotationLayer section {
+  position: absolute;
+  text-align: initial;
+  pointer-events: auto;
+}
+
+/* Text input fields */
+.annotationLayer .textWidgetAnnotation input,
+.annotationLayer .textWidgetAnnotation textarea {
+  background-color: rgba(0, 54, 255, 0.13);
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  font-size: 9px;
+  height: 100%;
+  margin: 0;
+  padding: 0 3px;
+  vertical-align: top;
+  width: 100%;
+}
+
+.annotationLayer .textWidgetAnnotation input:focus,
+.annotationLayer .textWidgetAnnotation textarea:focus {
+  background-color: rgba(0, 54, 255, 0.13);
+  border: 1px solid transparent;
+  outline: none;
+}
+
+.annotationLayer .textWidgetAnnotation input[disabled],
+.annotationLayer .textWidgetAnnotation textarea[disabled] {
+  background: none;
+  border: 1px solid transparent;
+  cursor: not-allowed;
+}
+
+/* Checkbox and radio button fields */
+.annotationLayer .buttonWidgetAnnotation.checkBox input,
+.annotationLayer .buttonWidgetAnnotation.radioButton input {
+  background-color: rgba(0, 54, 255, 0.13);
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  font-size: 9px;
+  height: 100%;
+  margin: 0;
+  vertical-align: top;
+  width: 100%;
+}
+
+.annotationLayer .buttonWidgetAnnotation.checkBox input:focus,
+.annotationLayer .buttonWidgetAnnotation.radioButton input:focus {
+  background-color: rgba(0, 54, 255, 0.13);
+  border: 1px solid transparent;
+  outline: none;
+}
+
+/* Select dropdowns */
+.annotationLayer .choiceWidgetAnnotation select {
+  background-color: rgba(0, 54, 255, 0.13);
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  font-size: 9px;
+  height: 100%;
+  margin: 0;
+  padding: 0 3px;
+  vertical-align: top;
+  width: 100%;
+}
+
+.annotationLayer .choiceWidgetAnnotation select:focus {
+  background-color: rgba(0, 54, 255, 0.13);
+  border: 1px solid transparent;
+  outline: none;
+}
+
+/* Button annotations */
+.annotationLayer .buttonWidgetAnnotation.pushButton a {
+  background-color: rgba(0, 0, 255, 0.2);
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  color: transparent;
+  cursor: pointer;
+  display: block;
+  font-size: 9px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  text-decoration: none;
+  vertical-align: top;
+  width: 100%;
+}
+
+/* Hide signature fields */
+.annotationLayer .signatureWidgetAnnotation {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border: 1px dashed #ccc !important;
+  pointer-events: none !important;
+}
+
+.annotationLayer .signatureWidgetAnnotation::after {
+  content: "Signature field (hidden)";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 10px;
+  height: 100%;
+  width: 100%;
+}
+
+/* Text layer styles */
+.textLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 0.2;
+  line-height: 1.0;
+}
+
+.textLayer > span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer .highlight {
+  margin: -1px;
+  padding: 1px;
+  background-color: rgba(180, 0, 170, 1);
+  border-radius: 4px;
+}
+
+.textLayer .highlight.begin {
+  border-radius: 4px 0px 0px 4px;
+}
+
+.textLayer .highlight.end {
+  border-radius: 0px 4px 4px 0px;
+}
+
+.textLayer .highlight.middle {
+  border-radius: 0px;
+}
+
+.textLayer .highlight.selected {
+  background-color: rgba(0, 100, 0, 1);
+}
