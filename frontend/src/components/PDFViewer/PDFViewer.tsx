@@ -366,8 +366,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
 
   // Helper function to hide signature fields on any canvas
   const hideSignatureFieldsOnCanvas = useCallback(async (page: PDFPageProxy, targetCanvas: HTMLCanvasElement, viewport: any) => {
-    // Only hide signature fields if user is not a provider
-    if (isProvider()) return;
+    // Don't hide signature fields for providers or patients (they need to sign)
+    if (isProvider() || isPatient()) return;
     
     try {
       const annotations = await page.getAnnotations();
@@ -406,7 +406,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     } catch (err) {
       console.warn('Failed to process annotations:', err);
     }
-  }, [isProvider]);
+  }, [isProvider, isPatient]);
 
   // Enhanced page rendering with native PDF.js form support
   const renderPage = useCallback(async () => {
@@ -545,8 +545,12 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                 if (annotation.fieldType === 'Sig' || 
                     (annotation.fieldName && (
                       annotation.fieldName.toLowerCase().includes('signature') ||
-                      annotation.fieldName.toLowerCase().includes('prescriber')
+                      annotation.fieldName.toLowerCase().includes('prescriber') ||
+                      annotation.fieldName.toLowerCase().includes('sign') ||
+                      annotation.fieldName.toLowerCase().includes('sig')
                     ))) {
+                  
+                  console.log('📝 Found potential signature field:', annotation.fieldName, 'fieldType:', annotation.fieldType);
                   
                   // Determine user type and which signatures they can access
                   console.log('🔍 Processing signature field - isProvider():', isProvider(), 'isPatient():', isPatient(), 'currentRecipientType:', workflowContext?.currentRecipientType);
