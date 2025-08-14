@@ -416,48 +416,175 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       // Render annotation layer (forms) if available
       if (annotationLayer && enableFormInteraction) {
         try {
-          const annotations = await page.getAnnotations();
+          const annotations = await page.getAnnotations({ intent: 'display' });
           
-          if (annotations.length > 0 && pdfjsLib.AnnotationLayer) {
-            // Create annotation layer parameters
-            const annotationLayerParams = {
-              viewport: viewport.clone({ dontFlip: true }),
-              div: annotationLayer,
-              annotations,
-              page,
-              linkService: {
-                externalLinkEnabled: false,
-                externalLinkTarget: null,
-                externalLinkRel: null,
-                isInPDFForm: true,
-              },
-              downloadManager: null,
-              imageResourcesPath: '',
-              renderInteractiveForms: true,
-              enableScripting: false,
-              hasJSActions: false,
-              fieldObjects: null,
-            };
-
-            pdfjsLib.AnnotationLayer.render(annotationLayerParams);
+          if (annotations.length > 0) {
+            // Clear existing annotations
+            annotationLayer.innerHTML = '';
+            
+            // Create viewport for annotations (don't flip y-axis)
+            const annotationViewport = viewport.clone({ dontFlip: true });
+            
+            // Render each annotation as HTML element
+            for (const annotation of annotations) {
+              if (!annotation) continue;
+              
+              // Create annotation element based on type
+              const element = document.createElement('section');
+              element.setAttribute('data-annotation-id', annotation.id);
+              
+              // Position the element
+              const rect = annotation.rect;
+              if (rect) {
+                const [x1, y1, x2, y2] = rect;
+                const width = (x2 - x1) * annotationViewport.scale;
+                const height = (y2 - y1) * annotationViewport.scale;
+                const x = x1 * annotationViewport.scale;
+                const y = (annotationViewport.height - y2 * annotationViewport.scale);
+                
+                element.style.position = 'absolute';
+                element.style.left = `${x}px`;
+                element.style.top = `${y}px`;
+                element.style.width = `${width}px`;
+                element.style.height = `${height}px`;
+              }
+              
+              // Handle form fields
+              if (annotation.subtype === 'Widget') {
+                // Skip signature fields
+                if (annotation.fieldType === 'Sig' || 
+                    (annotation.fieldName && (
+                      annotation.fieldName.toLowerCase().includes('signature') ||
+                      annotation.fieldName.toLowerCase().includes('prescriber')
+                    ))) {
+                  // Create a placeholder for signature fields
+                  const sigPlaceholder = document.createElement('div');
+                  sigPlaceholder.style.position = 'absolute';
+                  sigPlaceholder.style.left = '0';
+                  sigPlaceholder.style.top = '0';
+                  sigPlaceholder.style.width = '100%';
+                  sigPlaceholder.style.height = '100%';
+                  sigPlaceholder.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+                  sigPlaceholder.style.border = '1px dashed #ccc';
+                  sigPlaceholder.style.display = 'flex';
+                  sigPlaceholder.style.alignItems = 'center';
+                  sigPlaceholder.style.justifyContent = 'center';
+                  sigPlaceholder.style.fontSize = '10px';
+                  sigPlaceholder.style.color = '#999';
+                  sigPlaceholder.style.pointerEvents = 'none';
+                  sigPlaceholder.textContent = 'Signature field (hidden)';
+                  element.appendChild(sigPlaceholder);
+                  annotationLayer.appendChild(element);
+                  continue;
+                }
+                
+                let inputElement: HTMLElement | null = null;
+                
+                // Text fields
+                if (annotation.fieldType === 'Tx') {
+                  if (annotation.multiline) {
+                    inputElement = document.createElement('textarea');
+                    (inputElement as HTMLTextAreaElement).style.resize = 'none';
+                  } else {
+                    inputElement = document.createElement('input');
+                    (inputElement as HTMLInputElement).type = 'text';
+                  }
+                  if (inputElement) {
+                    (inputElement as HTMLInputElement | HTMLTextAreaElement).value = annotation.fieldValue || '';
+                    (inputElement as HTMLInputElement | HTMLTextAreaElement).name = annotation.fieldName || '';
+                    if (annotation.maxLen) {
+                      (inputElement as HTMLInputElement | HTMLTextAreaElement).maxLength = annotation.maxLen;
+                    }
+                  }
+                }
+                // Checkbox
+                else if (annotation.fieldType === 'Btn' && annotation.checkBox) {
+                  inputElement = document.createElement('input');
+                  (inputElement as HTMLInputElement).type = 'checkbox';
+                  (inputElement as HTMLInputElement).checked = annotation.fieldValue === 'Yes' || annotation.fieldValue === true;
+                  (inputElement as HTMLInputElement).name = annotation.fieldName || '';
+                }
+                // Radio button
+                else if (annotation.fieldType === 'Btn' && annotation.radioButton) {
+                  inputElement = document.createElement('input');
+                  (inputElement as HTMLInputElement).type = 'radio';
+                  (inputElement as HTMLInputElement).name = annotation.fieldName || '';
+                  (inputElement as HTMLInputElement).value = annotation.buttonValue || '';
+                  (inputElement as HTMLInputElement).checked = annotation.fieldValue === annotation.buttonValue;
+                }
+                // Dropdown/Select
+                else if (annotation.fieldType === 'Ch') {
+                  inputElement = document.createElement('select');
+                  (inputElement as HTMLSelectElement).name = annotation.fieldName || '';
+                  
+                  if (annotation.options) {
+                    for (const option of annotation.options) {
+                      const optionElement = document.createElement('option');
+                      optionElement.value = option.exportValue || option.displayValue || '';
+                      optionElement.textContent = option.displayValue || option.exportValue || '';
+                      if (annotation.fieldValue === option.exportValue) {
+                        optionElement.selected = true;
+                      }
+                      (inputElement as HTMLSelectElement).appendChild(optionElement);
+                    }
+                  }
+                }
+                
+                // Style and append the input element
+                if (inputElement) {
+                  inputElement.style.position = 'absolute';
+                  inputElement.style.left = '0';
+                  inputElement.style.top = '0';
+                  inputElement.style.width = '100%';
+                  inputElement.style.height = '100%';
+                  inputElement.style.border = '1px solid transparent';
+                  inputElement.style.backgroundColor = 'rgba(0, 54, 255, 0.13)';
+                  inputElement.style.fontSize = '12px';
+                  inputElement.style.fontFamily = 'Helvetica, Arial, sans-serif';
+                  
+                  // Add event listener for form changes
+                  inputElement.addEventListener('change', (e) => {
+                    const target = e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+                    const fieldName = target.name || annotation.fieldName;
+                    let value: any = target.value;
+                    
+                    if (target.type === 'checkbox') {
+                      value = (target as HTMLInputElement).checked;
+                    }
+                    
+                    if (fieldName && onFormDataChange) {
+                      onFormDataChange({ [fieldName]: value });
+                    }
+                  });
+                  
+                  element.appendChild(inputElement);
+                }
+              }
+              // Handle link annotations
+              else if (annotation.subtype === 'Link' && annotation.url) {
+                const linkElement = document.createElement('a');
+                linkElement.href = annotation.url;
+                linkElement.target = '_blank';
+                linkElement.style.position = 'absolute';
+                linkElement.style.left = '0';
+                linkElement.style.top = '0';
+                linkElement.style.width = '100%';
+                linkElement.style.height = '100%';
+                linkElement.style.display = 'block';
+                element.appendChild(linkElement);
+              }
+              
+              // Add the annotation element to the layer
+              if (element.children.length > 0 || annotation.subtype === 'Widget') {
+                annotationLayer.appendChild(element);
+              }
+            }
             
             // Extract form fields for state management
             if (annotations.some(ann => ann.subtype === 'Widget')) {
               try {
                 const formFields = await pdfFormService.extractFormFields(pdfDocument);
                 setFormFields(formFields);
-                
-                // Add event listeners for form field changes
-                const formElements = annotationLayer.querySelectorAll('input, select, textarea');
-                formElements.forEach((element: any) => {
-                  const fieldName = element.name || element.getAttribute('data-field-name');
-                  if (fieldName && onFormDataChange) {
-                    element.addEventListener('change', (e: any) => {
-                      const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-                      onFormDataChange({ [fieldName]: value });
-                    });
-                  }
-                });
               } catch (formError) {
                 console.warn('Failed to extract form fields:', formError);
               }
