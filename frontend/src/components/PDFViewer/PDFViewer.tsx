@@ -111,6 +111,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const [virtualScrollEnabled, setVirtualScrollEnabled] = useState(false);
   const [performanceMetrics, setPerformanceMetrics] = useState<any>(null);
   const [hasAutoResized, setHasAutoResized] = useState(false);
+  const renderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Cache management
   const getCacheKey = useCallback((pageNumber: number, scale: number) => {
@@ -279,16 +280,13 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     loadPDF();
   }, [pdfData, setPdfDocument, setTotalPages, setCurrentPage, setLoading, setError, onLoad, onError]);
 
-  // Enhanced signature field detection and hiding
-  const hideSignatureFields = useCallback(async (page: PDFPageProxy) => {
+  // Helper function to hide signature fields on any canvas
+  const hideSignatureFieldsOnCanvas = useCallback(async (page: PDFPageProxy, targetCanvas: HTMLCanvasElement, viewport: any) => {
     try {
       const annotations = await page.getAnnotations();
-      const canvas = canvasRef.current;
-      const context = canvas?.getContext('2d');
+      const context = targetCanvas.getContext('2d');
       
-      if (!context || !canvas) return;
-      
-      const viewport = page.getViewport({ scale: zoomLevel / 100 });
+      if (!context) return;
       
       annotations.forEach((annotation: AnnotationData) => {
         // Check if it's a signature field
@@ -304,7 +302,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           // Convert PDF coordinates to canvas coordinates
           const [x1, y1, x2, y2] = annotation.rect;
           const canvasX = x1 * viewport.scale;
-          const canvasY = canvas.height - (y2 * viewport.scale);
+          const canvasY = targetCanvas.height - (y2 * viewport.scale);
           const width = (x2 - x1) * viewport.scale;
           const height = (y2 - y1) * viewport.scale;
           
@@ -321,7 +319,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     } catch (err) {
       console.warn('Failed to process annotations:', err);
     }
-  }, [zoomLevel]);
+  }, []);
 
   // Enhanced page rendering with native PDF.js form support
   const renderPage = useCallback(async () => {
@@ -339,46 +337,64 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
 
       const scale = zoomLevel / 100;
       
-      // Check cache first
+      // Check cache first before any DOM manipulation to prevent flicker
       const cachedPage = getCachedPage(currentPage, scale);
       if (cachedPage && !enableFormInteraction) {
         canvas.width = cachedPage.canvas.width;
         canvas.height = cachedPage.canvas.height;
         context.drawImage(cachedPage.canvas, 0, 0);
+        setPageRendering(false);
         return;
       }
 
       const page = await pdfDocument.getPage(currentPage);
       const viewport = page.getViewport({ scale });
       
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-
-      // Clear canvas
-      context.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Clear annotation and text layers
-      if (textLayer) {
-        textLayer.innerHTML = '';
-        textLayer.style.width = canvas.width + 'px';
-        textLayer.style.height = canvas.height + 'px';
+      // Only resize canvas if dimensions actually changed
+      if (canvas.height !== viewport.height || canvas.width !== viewport.width) {
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        // Only clear and resize layers if canvas size changed
+        if (textLayer) {
+          textLayer.innerHTML = '';
+          textLayer.style.width = canvas.width + 'px';
+          textLayer.style.height = canvas.height + 'px';
+        }
+        
+        if (annotationLayer) {
+          annotationLayer.innerHTML = '';
+          annotationLayer.style.width = canvas.width + 'px';
+          annotationLayer.style.height = canvas.height + 'px';
+        }
       }
+
+      // Create offscreen canvas for double buffering to prevent flicker
+      const offscreenCanvas = document.createElement('canvas');
+      offscreenCanvas.width = viewport.width;
+      offscreenCanvas.height = viewport.height;
+      const offscreenContext = offscreenCanvas.getContext('2d');
       
-      if (annotationLayer) {
-        annotationLayer.innerHTML = '';
-        annotationLayer.style.width = canvas.width + 'px';
-        annotationLayer.style.height = canvas.height + 'px';
-      }
+      if (!offscreenContext) return;
 
       const renderContext = {
-        canvasContext: context,
+        canvasContext: offscreenContext,
         viewport: viewport,
         enableWebGL: false,
         renderInteractiveForms: enableFormInteraction,
       };
 
-      // Render PDF page
+      // Render PDF page to offscreen canvas
       await page.render(renderContext).promise;
+      
+      // Apply signature field hiding to offscreen canvas
+      if (enableFormInteraction) {
+        await hideSignatureFieldsOnCanvas(page, offscreenCanvas, viewport);
+      }
+      
+      // Copy offscreen canvas to main canvas in one operation
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(offscreenCanvas, 0, 0);
       
       // Render text layer if available
       if (textLayer && enableFormInteraction) {
@@ -446,9 +462,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                 console.warn('Failed to extract form fields:', formError);
               }
             }
-            
-            // Hide signature fields
-            await hideSignatureFields(page);
           }
         } catch (annotationError) {
           console.warn('Failed to render annotation layer:', annotationError);
@@ -472,12 +485,44 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     } finally {
       setPageRendering(false);
     }
-  }, [pdfDocument, currentPage, zoomLevel, pageRendering, enableFormInteraction, setError, getCachedPage, setCachedPage, hideSignatureFields, hasAutoResized, autoResizePDFToCanvas, setFormFields]);
+  }, [
+    pdfDocument, 
+    currentPage, 
+    zoomLevel, 
+    enableFormInteraction,
+    getCachedPage,
+    setCachedPage,
+    hideSignatureFieldsOnCanvas,
+    hasAutoResized,
+    autoResizePDFToCanvas,
+    setFormFields,
+    onFormDataChange,
+    setError
+  ]);
 
-  // Render current page
+  // Render current page with debouncing for zoom changes
   useEffect(() => {
-    renderPage();
-  }, [renderPage]);
+    if (!pdfDocument || currentPage <= 0) return;
+    
+    // Clear any pending render
+    if (renderTimeoutRef.current) {
+      clearTimeout(renderTimeoutRef.current);
+    }
+    
+    // For page changes, render immediately
+    // For zoom changes, debounce to avoid flicker
+    const delay = 0; // Immediate render for now, can be adjusted if needed
+    
+    renderTimeoutRef.current = setTimeout(() => {
+      renderPage();
+    }, delay);
+    
+    return () => {
+      if (renderTimeoutRef.current) {
+        clearTimeout(renderTimeoutRef.current);
+      }
+    };
+  }, [pdfDocument, currentPage, zoomLevel, enableFormInteraction]);
 
   // Mouse wheel zoom handling
   const handleWheel = useCallback((event: React.WheelEvent) => {
