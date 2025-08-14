@@ -506,12 +506,16 @@ MVE PDF Workflow System`,
                                     );
                                     
                                     // Debug logging for signature detection
-                                    if (recipient.recipient_type === 'PRESCRIBER') {
-                                      console.log('🔍 Checking signatures for provider:', recipient.recipient_name);
+                                    if (recipient.recipient_type === 'PRESCRIBER' || recipient.recipient_type === 'PATIENT') {
+                                      console.log('🔍 Checking signatures for', recipient.recipient_type, ':', recipient.recipient_name);
                                       console.log('🔍 Recipient submission:', recipientSubmission);
                                       if (recipientSubmission?.form_data) {
                                         console.log('🔍 Form data keys:', Object.keys(recipientSubmission.form_data));
-                                        console.log('🔍 Form data:', recipientSubmission.form_data);
+                                        const sigFields = Object.keys(recipientSubmission.form_data).filter(k => 
+                                          k.toLowerCase().includes('sign') || k.toLowerCase().includes('auth')
+                                        );
+                                        console.log('🔍 Signature field keys found:', sigFields);
+                                        console.log('🔍 Form data sample:', recipientSubmission.form_data);
                                       }
                                     }
                                     
