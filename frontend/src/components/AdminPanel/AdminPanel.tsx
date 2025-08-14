@@ -518,6 +518,77 @@ MVE PDF Workflow System`,
                       </Table>
                     </TableContainer>
 
+                    {/* Form Data Section */}
+                    {workflow.formDataHistory && workflow.formDataHistory.length > 0 && (
+                      <>
+                        <Typography variant="subtitle1" gutterBottom sx={{ mt: 3 }}>
+                          Form Data History ({workflow.formDataHistory.length} submissions)
+                        </Typography>
+                        <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Recipient</TableCell>
+                                <TableCell>Type</TableCell>
+                                <TableCell>Submitted At</TableCell>
+                                <TableCell>Form Fields</TableCell>
+                                <TableCell>Actions</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {workflow.formDataHistory.map((submission, index) => (
+                                <TableRow key={index}>
+                                  <TableCell>{submission.recipient_name}</TableCell>
+                                  <TableCell>
+                                    <Chip 
+                                      label={recipientTypeConfig[submission.recipient_type as keyof typeof recipientTypeConfig]?.label || submission.recipient_type}
+                                      size="small"
+                                      sx={{
+                                        bgcolor: recipientTypeConfig[submission.recipient_type as keyof typeof recipientTypeConfig]?.bgcolor || '#f5f5f5',
+                                        color: recipientTypeConfig[submission.recipient_type as keyof typeof recipientTypeConfig]?.color || '#616161',
+                                      }}
+                                    />
+                                  </TableCell>
+                                  <TableCell>{submission.submitted_at ? formatDate(submission.submitted_at) : '-'}</TableCell>
+                                  <TableCell>
+                                    <Box sx={{ maxWidth: 300 }}>
+                                      {Object.entries(submission.form_data).length > 0 ? (
+                                        <Box sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
+                                          {Object.entries(submission.form_data).slice(0, 3).map(([key, value]) => (
+                                            <div key={key}>
+                                              <strong>{key}:</strong> {String(value).substring(0, 50)}
+                                              {String(value).length > 50 ? '...' : ''}
+                                            </div>
+                                          ))}
+                                          {Object.entries(submission.form_data).length > 3 && (
+                                            <div>... and {Object.entries(submission.form_data).length - 3} more fields</div>
+                                          )}
+                                        </Box>
+                                      ) : (
+                                        'No form data'
+                                      )}
+                                    </Box>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      onClick={() => {
+                                        // Show detailed form data
+                                        alert(JSON.stringify(submission.form_data, null, 2));
+                                      }}
+                                    >
+                                      View Details
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </>
+                    )}
+
                     {/* Attachments Section */}
                     {workflow.attachments && workflow.attachments.length > 0 && (
                       <>

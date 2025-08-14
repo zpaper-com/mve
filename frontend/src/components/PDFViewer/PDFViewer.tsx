@@ -112,6 +112,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const [performanceMetrics, setPerformanceMetrics] = useState<any>(null);
   const [hasAutoResized, setHasAutoResized] = useState(false);
   const renderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentFormData, setCurrentFormData] = useState<Record<string, any>>({});
+  const [allWorkflowFormData, setAllWorkflowFormData] = useState<Record<string, any>>({});
 
   // Cache management
   const getCacheKey = useCallback((pageNumber: number, scale: number) => {
@@ -490,10 +492,20 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     (inputElement as HTMLInputElement).type = 'text';
                   }
                   if (inputElement) {
-                    (inputElement as HTMLInputElement | HTMLTextAreaElement).value = annotation.fieldValue || '';
+                    // Use existing workflow data if available, otherwise use annotation default
+                    const existingValue = allWorkflowFormData[annotation.fieldName || ''] || annotation.fieldValue || '';
+                    (inputElement as HTMLInputElement | HTMLTextAreaElement).value = existingValue;
                     (inputElement as HTMLInputElement | HTMLTextAreaElement).name = annotation.fieldName || '';
                     if (annotation.maxLen) {
                       (inputElement as HTMLInputElement | HTMLTextAreaElement).maxLength = annotation.maxLen;
+                    }
+                    
+                    // Update current form data with the existing value
+                    if (annotation.fieldName && existingValue) {
+                      setCurrentFormData(prev => ({
+                        ...prev,
+                        [annotation.fieldName]: existingValue
+                      }));
                     }
                   }
                 }
@@ -501,8 +513,23 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                 else if (annotation.fieldType === 'Btn' && annotation.checkBox) {
                   inputElement = document.createElement('input');
                   (inputElement as HTMLInputElement).type = 'checkbox';
-                  (inputElement as HTMLInputElement).checked = annotation.fieldValue === 'Yes' || annotation.fieldValue === true;
+                  
+                  // Use existing workflow data if available
+                  const existingValue = allWorkflowFormData[annotation.fieldName || ''];
+                  const isChecked = existingValue !== undefined ? 
+                    (existingValue === true || existingValue === 'Yes' || existingValue === 'true') :
+                    (annotation.fieldValue === 'Yes' || annotation.fieldValue === true);
+                  
+                  (inputElement as HTMLInputElement).checked = isChecked;
                   (inputElement as HTMLInputElement).name = annotation.fieldName || '';
+                  
+                  // Update current form data with the existing value
+                  if (annotation.fieldName) {
+                    setCurrentFormData(prev => ({
+                      ...prev,
+                      [annotation.fieldName]: isChecked
+                    }));
+                  }
                 }
                 // Radio button
                 else if (annotation.fieldType === 'Btn' && annotation.radioButton) {
@@ -510,23 +537,49 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                   (inputElement as HTMLInputElement).type = 'radio';
                   (inputElement as HTMLInputElement).name = annotation.fieldName || '';
                   (inputElement as HTMLInputElement).value = annotation.buttonValue || '';
-                  (inputElement as HTMLInputElement).checked = annotation.fieldValue === annotation.buttonValue;
+                  
+                  // Use existing workflow data if available
+                  const existingValue = allWorkflowFormData[annotation.fieldName || ''];
+                  const isChecked = existingValue !== undefined ? 
+                    existingValue === annotation.buttonValue :
+                    annotation.fieldValue === annotation.buttonValue;
+                  
+                  (inputElement as HTMLInputElement).checked = isChecked;
+                  
+                  // Update current form data with the existing value
+                  if (annotation.fieldName && isChecked) {
+                    setCurrentFormData(prev => ({
+                      ...prev,
+                      [annotation.fieldName]: annotation.buttonValue
+                    }));
+                  }
                 }
                 // Dropdown/Select
                 else if (annotation.fieldType === 'Ch') {
                   inputElement = document.createElement('select');
                   (inputElement as HTMLSelectElement).name = annotation.fieldName || '';
                   
+                  // Use existing workflow data if available
+                  const existingValue = allWorkflowFormData[annotation.fieldName || ''] || annotation.fieldValue;
+                  
                   if (annotation.options) {
                     for (const option of annotation.options) {
                       const optionElement = document.createElement('option');
                       optionElement.value = option.exportValue || option.displayValue || '';
                       optionElement.textContent = option.displayValue || option.exportValue || '';
-                      if (annotation.fieldValue === option.exportValue) {
+                      if (existingValue === option.exportValue) {
                         optionElement.selected = true;
                       }
                       (inputElement as HTMLSelectElement).appendChild(optionElement);
                     }
+                  }
+                  
+                  // Update current form data with the existing value
+                  if (annotation.fieldName && existingValue) {
+                    setCurrentFormData(prev => ({
+                      ...prev,
+                      [annotation.fieldName]: existingValue
+                    }));
                   }
                 }
                 
@@ -550,6 +603,14 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     
                     if (target.type === 'checkbox') {
                       value = (target as HTMLInputElement).checked;
+                    }
+                    
+                    // Update local form data state
+                    if (fieldName) {
+                      setCurrentFormData(prev => ({
+                        ...prev,
+                        [fieldName]: value
+                      }));
                     }
                     
                     if (fieldName && onFormDataChange) {
@@ -762,9 +823,47 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     );
   }
 
+  // Load existing workflow form data
+  React.useEffect(() => {
+    if (workflowContext?.workflowData?.workflow?.id) {
+      const loadWorkflowFormData = async () => {
+        try {
+          const response = await fetch(`/api/workflows/${workflowContext.workflowData.workflow.id}/form-data`);
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.formDataHistory) {
+              // Merge all form data from previous submissions
+              const mergedFormData: Record<string, any> = {};
+              result.formDataHistory.forEach((submission: any) => {
+                Object.assign(mergedFormData, submission.form_data);
+              });
+              setAllWorkflowFormData(mergedFormData);
+              console.log('📋 Loaded existing workflow form data:', mergedFormData);
+            }
+          }
+        } catch (error) {
+          console.warn('Failed to load workflow form data:', error);
+        }
+      };
+      
+      loadWorkflowFormData();
+    }
+  }, [workflowContext?.workflowData?.workflow?.id]);
+
+  // Expose form data to parent components
+  React.useEffect(() => {
+    if (workflowContext && Object.keys(currentFormData).length > 0) {
+      // Store form data in a way that can be accessed by toolbar
+      (window as any).currentPDFFormData = currentFormData;
+    }
+  }, [currentFormData, workflowContext]);
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <PDFToolbar workflowContext={workflowContext} />
+      <PDFToolbar 
+        workflowContext={workflowContext} 
+        getCurrentFormData={() => currentFormData}
+      />
       
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {showThumbnails && (

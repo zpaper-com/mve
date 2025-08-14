@@ -37,9 +37,10 @@ interface PDFToolbarProps {
     isLastRecipient: boolean;
     currentRecipientToken: string | null;
   };
+  getCurrentFormData?: () => Record<string, any>;
 }
 
-const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext }) => {
+const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentFormData }) => {
   const {
     currentPage,
     totalPages,
@@ -106,7 +107,7 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          formData: {} // TODO: Add actual form data
+          formData: getCurrentFormData ? getCurrentFormData() : {}
         }),
       });
       
@@ -137,7 +138,7 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          formData: {} // TODO: Add actual form data
+          formData: getCurrentFormData ? getCurrentFormData() : {}
         }),
       });
       

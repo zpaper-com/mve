@@ -695,6 +695,12 @@ app.post('/api/recipients/:token/submit', async (req, res) => {
       });
     }
 
+    // Save form data if provided
+    if (formData && Object.keys(formData).length > 0) {
+      await db.updateRecipientFormData(recipient.id, formData);
+      console.log(`📋 Form data saved for ${recipient.recipient_name}:`, formData);
+    }
+
     // Update recipient status to completed
     await db.updateRecipientStatus(recipient.id, 'completed');
 
@@ -846,6 +852,28 @@ app.delete('/api/admin/workflows', async (req, res) => {
   }
 });
 
+// Get workflow form data endpoint
+app.get('/api/workflows/:workflowId/form-data', async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    
+    const formDataHistory = await db.getWorkflowFormData(workflowId);
+    
+    res.json({
+      success: true,
+      formDataHistory: formDataHistory
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting workflow form data:', error);
+    
+    res.status(500).json({
+      error: 'Failed to get workflow form data',
+      details: error.message
+    });
+  }
+});
+
 // Admin endpoints
 app.get('/api/admin/workflows', async (req, res) => {
   try {
@@ -859,10 +887,11 @@ app.get('/api/admin/workflows', async (req, res) => {
     
     const workflowsWithDetails = await Promise.all(
       allWorkflows.map(async (workflow) => {
-        const [recipients, notifications, attachments] = await Promise.all([
+        const [recipients, notifications, attachments, formDataHistory] = await Promise.all([
           db.getRecipientsByWorkflow(workflow.id),
           db.getNotificationsByWorkflow(workflow.id),
-          db.getAttachmentsByWorkflow(workflow.id)
+          db.getAttachmentsByWorkflow(workflow.id),
+          db.getWorkflowFormData(workflow.id)
         ]);
         
         // Add URLs to attachments
@@ -876,7 +905,8 @@ app.get('/api/admin/workflows', async (req, res) => {
           metadata: workflow.metadata ? JSON.parse(workflow.metadata) : {},
           recipients,
           notifications,
-          attachments: attachmentsWithUrls
+          attachments: attachmentsWithUrls,
+          formDataHistory: formDataHistory
         };
       })
     );

@@ -47,6 +47,8 @@ class Database {
           order_index INTEGER DEFAULT 0,
           status TEXT DEFAULT 'pending',
           unique_token TEXT UNIQUE,
+          form_data TEXT, -- JSON string of form field values
+          submitted_at DATETIME,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (workflow_id) REFERENCES workflows (id)
         )`,
@@ -287,6 +289,48 @@ class Database {
             return;
           }
           resolve({ changes: this.changes });
+        }
+      );
+    });
+  }
+
+  async updateRecipientFormData(recipientId, formData) {
+    return new Promise((resolve, reject) => {
+      const formDataJson = JSON.stringify(formData);
+      this.db.run(
+        `UPDATE recipients SET form_data = ?, submitted_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [formDataJson, recipientId],
+        function(err) {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve({ changes: this.changes });
+        }
+      );
+    });
+  }
+
+  async getWorkflowFormData(workflowId) {
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        `SELECT recipient_name, recipient_type, order_index, form_data, submitted_at, status 
+         FROM recipients 
+         WHERE workflow_id = ? AND form_data IS NOT NULL 
+         ORDER BY order_index`,
+        [workflowId],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          
+          const formDataHistory = rows.map(row => ({
+            ...row,
+            form_data: row.form_data ? JSON.parse(row.form_data) : {}
+          }));
+          
+          resolve(formDataHistory);
         }
       );
     });
