@@ -177,17 +177,24 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     return result;
   }, [workflowContext?.currentRecipientType]);
 
+  // Helper function to check if current user is a patient
+  const isPatient = useCallback(() => {
+    const result = workflowContext?.currentRecipientType === 'PATIENT';
+    console.log('🏥 isPatient check - currentRecipientType:', workflowContext?.currentRecipientType, 'result:', result);
+    return result;
+  }, [workflowContext?.currentRecipientType]);
+
   // Handle signature field click
   const handleSignatureFieldClick = useCallback((fieldName: string) => {
-    console.log('🖊️ Signature field clicked:', fieldName, 'isProvider:', isProvider());
-    if (isProvider()) {
+    console.log('🖊️ Signature field clicked:', fieldName, 'isProvider:', isProvider(), 'isPatient:', isPatient());
+    if (isProvider() || isPatient()) {
       console.log('🖊️ Opening signature dialog for:', fieldName);
       setCurrentSignatureField(fieldName);
       setSignatureDialogOpen(true);
     } else {
-      console.log('🖊️ User is not a provider, ignoring click');
+      console.log('🖊️ User is not a provider or patient, ignoring click');
     }
-  }, [isProvider]);
+  }, [isProvider, isPatient]);
 
   // Save signature
   const handleSaveSignature = useCallback(async (signatureDataUrl: string) => {
@@ -541,20 +548,23 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                       annotation.fieldName.toLowerCase().includes('prescriber')
                     ))) {
                   
-                  // If user is a provider, create signature field (readonly for first 2, editable for last)
-                  console.log('🔍 Processing signature field - isProvider():', isProvider(), 'currentRecipientType:', workflowContext?.currentRecipientType);
+                  // Determine user type and which signatures they can access
+                  console.log('🔍 Processing signature field - isProvider():', isProvider(), 'isPatient():', isPatient(), 'currentRecipientType:', workflowContext?.currentRecipientType);
                   console.log('🔍 Workflow context:', workflowContext);
                   
-                  // Show signature fields for providers only
-                  if (isProvider()) {
-                    // Determine if this is the last signature field (provider signature)
+                  // Show signature fields based on user type
+                  if (isProvider() || isPatient()) {
+                    // Determine signature field type
                     const fieldName = annotation.fieldName || '';
                     const isLastSignature = fieldName.toLowerCase().includes('prescriber') || 
                                           fieldName.toLowerCase().includes('provider') ||
                                           fieldName.toLowerCase().includes('signature3') ||
-                                          fieldName.toLowerCase().includes('sig3');
+                                          fieldName.toLowerCase().includes('sig3') ||
+                                          fieldName.toLowerCase().includes('auth');
                     
-                    console.log('🔍 Signature field found:', fieldName, 'isLastSignature:', isLastSignature);
+                    const isPatientSignature = !isLastSignature; // First 2 signatures are for patients
+                    
+                    console.log('🔍 Signature field found:', fieldName, 'isLastSignature:', isLastSignature, 'isPatientSignature:', isPatientSignature);
                     
                     // Check if there's existing signature data from workflow
                     const existingSignature = workflowContext?.isWorkflowContext && allWorkflowFormData && fieldName ? 
@@ -562,8 +572,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     
                     const currentSignature = signatures[fieldName] || existingSignature;
                     
-                    if (isLastSignature) {
-                      // Last signature - editable by provider
+                    // Determine if current user can sign this field
+                    const canSign = (isPatient() && isPatientSignature) || (isProvider() && isLastSignature);
+                    
+                    if (canSign) {
+                      // Editable signature field for authorized user
                       const sigButton = document.createElement('button');
                       sigButton.style.position = 'absolute';
                       sigButton.style.left = '0';
@@ -602,7 +615,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                       
                       element.appendChild(sigButton);
                     } else {
-                      // First two signatures - readonly for provider
+                      // Readonly signature field (patient can't sign provider field, provider can't sign patient fields)
                       const sigDisplay = document.createElement('div');
                       sigDisplay.style.position = 'absolute';
                       sigDisplay.style.left = '0';
@@ -879,6 +892,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     workflowContext,
     signatures,
     isProvider,
+    isPatient,
     handleSignatureFieldClick
   ]);
 
