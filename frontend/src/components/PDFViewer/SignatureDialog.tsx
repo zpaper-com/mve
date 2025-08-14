@@ -23,22 +23,54 @@ interface SignatureDialogProps {
   onClose: () => void;
   onSave: (signatureDataUrl: string) => void;
   recipientName?: string;
+  fieldDimensions?: { width: number; height: number } | null;
 }
 
 const SignatureDialog: React.FC<SignatureDialogProps> = ({
   open,
   onClose,
   onSave,
-  recipientName = 'Provider'
+  recipientName = 'Provider',
+  fieldDimensions
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
   const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
 
-  // Canvas dimensions
-  const CANVAS_WIDTH = 400;
-  const CANVAS_HEIGHT = 200;
+  // Dynamic canvas dimensions based on field size, with sensible defaults and limits
+  const DEFAULT_WIDTH = 400;
+  const DEFAULT_HEIGHT = 200;
+  const MIN_WIDTH = 200;
+  const MIN_HEIGHT = 100;
+  const MAX_WIDTH = 600;
+  const MAX_HEIGHT = 300;
+  
+  // Calculate canvas dimensions from field dimensions with aspect ratio preserved
+  const calculateCanvasDimensions = () => {
+    if (!fieldDimensions) {
+      return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+    }
+    
+    // Use field dimensions as base, but apply reasonable limits
+    let width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, fieldDimensions.width * 1.2)); // 20% larger than field
+    let height = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, fieldDimensions.height * 1.2));
+    
+    // Ensure minimum aspect ratio for usability
+    const aspectRatio = width / height;
+    if (aspectRatio < 1.5) {
+      width = height * 1.5;
+    }
+    if (aspectRatio > 4) {
+      height = width / 4;
+    }
+    
+    return { width: Math.round(width), height: Math.round(height) };
+  };
+  
+  const canvasDimensions = calculateCanvasDimensions();
+  const CANVAS_WIDTH = canvasDimensions.width;
+  const CANVAS_HEIGHT = canvasDimensions.height;
 
   // Initialize canvas
   useEffect(() => {
@@ -50,9 +82,9 @@ const SignatureDialog: React.FC<SignatureDialogProps> = ({
         canvas.width = CANVAS_WIDTH;
         canvas.height = CANVAS_HEIGHT;
         
-        // Set drawing properties
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2;
+        // Set drawing properties - blue, thicker lines
+        ctx.strokeStyle = '#1976d2'; // Material-UI blue
+        ctx.lineWidth = 3; // Thicker line
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
@@ -65,13 +97,13 @@ const SignatureDialog: React.FC<SignatureDialogProps> = ({
         ctx.lineWidth = 1;
         ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         
-        // Reset drawing properties
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2;
+        // Reset drawing properties - blue, thicker lines
+        ctx.strokeStyle = '#1976d2'; // Material-UI blue
+        ctx.lineWidth = 3; // Thicker line
       }
       setHasSignature(false);
     }
-  }, [open]);
+  }, [open, CANVAS_WIDTH, CANVAS_HEIGHT]);
 
   // Get mouse/touch position relative to canvas
   const getEventPos = useCallback((event: React.MouseEvent | React.TouchEvent) => {
@@ -149,12 +181,12 @@ const SignatureDialog: React.FC<SignatureDialogProps> = ({
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
-    // Reset drawing properties
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 2;
+    // Reset drawing properties - blue, thicker lines
+    ctx.strokeStyle = '#1976d2'; // Material-UI blue
+    ctx.lineWidth = 3; // Thicker line
     
     setHasSignature(false);
-  }, []);
+  }, [CANVAS_WIDTH, CANVAS_HEIGHT]);
 
   // Save signature
   const saveSignature = useCallback(() => {
@@ -195,6 +227,11 @@ const SignatureDialog: React.FC<SignatureDialogProps> = ({
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           {recipientName}, please sign below to complete the form
         </Typography>
+        {fieldDimensions && (
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+            Canvas sized for {Math.round(fieldDimensions.width)}x{Math.round(fieldDimensions.height)}px field
+          </Typography>
+        )}
       </DialogTitle>
 
       <DialogContent>

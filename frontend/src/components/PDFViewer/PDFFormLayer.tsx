@@ -33,6 +33,8 @@ interface PDFFormLayerProps {
   readonly?: boolean;
   showErrors?: boolean;
   errors?: Record<string, string>;
+  recipientType?: string;
+  hideSignatureFields?: boolean;
 }
 
 const PDFFormLayer: React.FC<PDFFormLayerProps> = ({
@@ -44,13 +46,15 @@ const PDFFormLayer: React.FC<PDFFormLayerProps> = ({
   readonly = false,
   showErrors = true,
   errors = {},
+  recipientType,
+  hideSignatureFields = true,
 }) => {
   const layerRef = useRef<HTMLDivElement>(null);
   const [fieldElements, setFieldElements] = useState<Map<string, HTMLElement>>(new Map());
 
   // Filter fields for current page
   const currentPageFields = formFields.filter(field => 
-    field.page === currentPage && !PDFFormUtils.shouldHideField(field)
+    field.page === currentPage && !PDFFormUtils.shouldHideField(field, recipientType, hideSignatureFields)
   );
 
   // Update field positions when scale changes

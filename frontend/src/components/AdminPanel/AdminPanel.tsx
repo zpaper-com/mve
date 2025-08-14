@@ -46,6 +46,8 @@ import {
   PictureAsPdf,
   AttachFile,
   Image,
+  Build,
+  Send,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { format } from 'date-fns';
@@ -226,6 +228,36 @@ const AdminPanel: React.FC = () => {
     } catch (err) {
       setError('Failed to clear workflows');
       console.error('Clear workflows error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const processCompletedPDFs = async () => {
+    setLoading(true);
+    try {
+      console.log('🔧 Processing existing completed workflows...');
+      await axios.post('/api/admin/process-completed-pdfs');
+      setSuccess('Completed PDFs generated successfully');
+      // Reload workflows to show updated PDF links
+      await loadData();
+    } catch (err) {
+      setError('Failed to generate completed PDFs');
+      console.error('Process PDFs error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleWebhookPost = async (workflow: Workflow) => {
+    setLoading(true);
+    try {
+      console.log('🔗 Posting webhook for workflow:', workflow.id);
+      await axios.post(`/api/admin/webhook-post/${workflow.id}`);
+      setSuccess(`Webhook posted successfully for workflow ${workflow.uuid}`);
+    } catch (err) {
+      setError('Failed to post webhook');
+      console.error('Webhook post error:', err);
     } finally {
       setLoading(false);
     }
@@ -426,6 +458,15 @@ MVE PDF Workflow System`,
             </Button>
             <Button
               variant="outlined"
+              startIcon={<Build />}
+              onClick={processCompletedPDFs}
+              disabled={loading}
+              sx={{ mr: 1 }}
+            >
+              Generate PDFs
+            </Button>
+            <Button
+              variant="outlined"
               color="error"
               startIcon={<DeleteSweep />}
               onClick={() => setClearDialogOpen(true)}
@@ -458,6 +499,46 @@ MVE PDF Workflow System`,
                         color={getStatusColor(workflow.status) as any}
                         size="small"
                       />
+                      {workflow.status === 'completed' && workflow.completed_pdf_path && (
+                        <>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<PictureAsPdf />}
+                            onClick={() => {
+                              // Convert filesystem path to web path
+                              const filename = workflow.completed_pdf_path.split('/').pop();
+                              const webPath = `/completed_forms/${filename}`;
+                              window.open(webPath, '_blank');
+                            }}
+                            sx={{ 
+                              fontSize: '0.75rem',
+                              py: 0.5,
+                              px: 1,
+                              minWidth: 'auto',
+                              mr: 1
+                            }}
+                          >
+                            Download PDF
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            color="secondary"
+                            startIcon={<Send />}
+                            onClick={() => handleWebhookPost(workflow)}
+                            disabled={loading}
+                            sx={{ 
+                              fontSize: '0.75rem',
+                              py: 0.5,
+                              px: 1,
+                              minWidth: 'auto'
+                            }}
+                          >
+                            Post Webhook
+                          </Button>
+                        </>
+                      )}
                       {renderRolePills(workflow.recipients)}
                     </Box>
                   </Box>

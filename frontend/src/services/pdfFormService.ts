@@ -614,8 +614,42 @@ export const PDFFormUtils = {
 
   /**
    * Check if field should be hidden (like signature fields)
+   * Context-aware hiding based on recipient type
    */
-  shouldHideField: (field: PDFFormField): boolean => {
-    return field.type === 'signature' || field.hidden;
+  shouldHideField: (field: PDFFormField, recipientType?: string, hideSignatureFields = true): boolean => {
+    if (field.hidden) return true;
+    
+    // If hideSignatureFields is false, show signature fields based on context
+    if (field.type === 'signature' && !hideSignatureFields && recipientType) {
+      const fieldName = field.name.toLowerCase();
+      
+      // Patient signature fields - show only for PATIENT recipients
+      if (fieldName.includes('patient') || fieldName.includes('patientauth') || fieldName.includes('client')) {
+        return recipientType !== 'PATIENT';
+      }
+      
+      // Provider signature fields - show only for PRESCRIBER recipients  
+      if (fieldName.includes('prescriber') || fieldName.includes('provider') || fieldName.includes('doctor') || fieldName.includes('providerauth')) {
+        return recipientType !== 'PRESCRIBER';
+      }
+      
+      // General auth/signature fields - show based on context
+      if (fieldName.includes('auth') || fieldName.includes('sign')) {
+        // If it's a provider auth field, show to prescribers
+        if (fieldName.includes('provider')) {
+          return recipientType !== 'PRESCRIBER';
+        }
+        // If it's a patient/general auth field, show to patients
+        return recipientType !== 'PATIENT';
+      }
+      
+      // If no specific match, show all signature fields to all recipients in workflow
+      return false;
+    }
+    
+    // Default behavior: hide all signature fields if hideSignatureFields is true
+    if (field.type === 'signature' && hideSignatureFields) return true;
+    
+    return false;
   },
 };

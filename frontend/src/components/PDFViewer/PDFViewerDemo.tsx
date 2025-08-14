@@ -14,6 +14,7 @@ import { useParams } from 'react-router-dom';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 import PDFViewer from './PDFViewer';
+import { usePDFStore } from '../../store';
 // import { DEFAULT_PDF_CONFIG } from '../../types/pdf';
 
 // Import recipient type configuration for title display
@@ -83,6 +84,7 @@ interface WorkflowData {
 
 const PDFViewerDemo: React.FC = () => {
   const { uuid } = useParams<{ uuid?: string }>();
+  const { formData: storeFormData } = usePDFStore();
   
   // Using the requested Merx PDF (use remote URL to match MerxPDFViewer)
   const [pdfUrl] = useState('https://qr.md/kb/books/merx.pdf');
@@ -187,15 +189,28 @@ const PDFViewerDemo: React.FC = () => {
 
   // Handle form data change event
   const handleFormDataChange = useCallback((data: Record<string, any>) => {
-    setFormData(data);
-    console.log('Form data updated:', data);
+    setFormData(prevData => {
+      const newData = {
+        ...prevData,
+        ...data
+      };
+      console.log('Form data updated:', data);
+      console.log('Current form data after update:', newData);
+      return newData;
+    });
   }, []);
 
-  // Custom PDF configuration
+  // Function to get current form data from store at submit time
+  const getCurrentFormData = useCallback(() => {
+    console.log('📋 Getting current form data from store:', storeFormData);
+    return storeFormData;
+  }, [storeFormData]);
+
+  // Custom PDF configuration - context-aware signature field hiding
   const customConfig = {
     ...DEFAULT_PDF_CONFIG,
     enableScripting: false, // Security: disable JavaScript
-    hideSignatureFields: true, // MVE requirement
+    hideSignatureFields: isWorkflowContext ? false : true, // Show signature fields in workflow context
     autoSave: true,
     saveDebounceMs: 1000,
     maxCanvasPixels: 16777216, // 4096x4096
@@ -217,10 +232,11 @@ const PDFViewerDemo: React.FC = () => {
             onError={handlePDFError}
             onPageChange={handlePageChange}
             onZoomChange={handleZoomChange}
-            onFormDataChange={handleFormDataChange}
+            onFormDataChange={undefined}
             config={customConfig}
             enableVirtualScrolling={enableVirtualScrolling}
             enableFormInteraction={enableFormInteraction}
+            getCurrentFormData={getCurrentFormData}
             workflowContext={{
               isWorkflowContext,
               workflowData,

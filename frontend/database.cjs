@@ -33,7 +33,8 @@ class Database {
           status TEXT DEFAULT 'active',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          metadata TEXT
+          metadata TEXT,
+          completed_pdf_path TEXT
         )`,
         
         // Recipients table
@@ -166,7 +167,9 @@ class Database {
         // Add form_data column to recipients table if it doesn't exist
         `ALTER TABLE recipients ADD COLUMN form_data TEXT`,
         // Add submitted_at column to recipients table if it doesn't exist
-        `ALTER TABLE recipients ADD COLUMN submitted_at DATETIME`
+        `ALTER TABLE recipients ADD COLUMN submitted_at DATETIME`,
+        // Add completed_pdf_path column to workflows table if it doesn't exist
+        `ALTER TABLE workflows ADD COLUMN completed_pdf_path TEXT`
       ];
       
       let index = 0;
@@ -681,6 +684,54 @@ MVE PDF Workflow System`,
           resolve(row);
         }
       );
+    });
+  }
+
+  async updateWorkflowCompletedPDF(workflowId, pdfPath) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        `UPDATE workflows SET completed_pdf_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [pdfPath, workflowId],
+        function(err) {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(this.changes);
+        }
+      );
+    });
+  }
+
+  async getCompletedWorkflows() {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Get all completed workflows first
+        const workflows = await new Promise((workflowResolve, workflowReject) => {
+          this.db.all(
+            `SELECT * FROM workflows WHERE status = 'completed' ORDER BY updated_at DESC`,
+            (err, rows) => {
+              if (err) workflowReject(err);
+              else workflowResolve(rows);
+            }
+          );
+        });
+        
+        // For each workflow, get its form data history
+        const workflowsWithData = await Promise.all(
+          workflows.map(async (workflow) => {
+            const formDataHistory = await this.getWorkflowFormData(workflow.id);
+            return {
+              ...workflow,
+              formDataHistory: formDataHistory
+            };
+          })
+        );
+        
+        resolve(workflowsWithData);
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 

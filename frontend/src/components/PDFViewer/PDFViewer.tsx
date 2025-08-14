@@ -51,6 +51,7 @@ interface PDFViewerProps {
   enableVirtualScrolling?: boolean;
   enableFormInteraction?: boolean;
   workflowContext?: WorkflowContext;
+  getCurrentFormData?: () => Record<string, any>;
 }
 
 interface CachedPage {
@@ -74,7 +75,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   config = {},
   enableVirtualScrolling = true,
   enableFormInteraction = true,
-  workflowContext
+  workflowContext,
+  getCurrentFormData
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -113,7 +115,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const [viewportPosition, setViewportPosition] = useState({ x: 0, y: 0 });
   const [virtualScrollEnabled, setVirtualScrollEnabled] = useState(false);
   const [performanceMetrics, setPerformanceMetrics] = useState<any>(null);
-  const [hasAutoResized, setHasAutoResized] = useState(false);
+  // const [hasAutoResized, setHasAutoResized] = useState(false); // Removed - auto-resize disabled
   const renderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [currentFormData, setCurrentFormData] = useState<Record<string, any>>({});
   const [allWorkflowFormData, setAllWorkflowFormData] = useState<Record<string, any>>({});
@@ -121,6 +123,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
   const [currentSignatureField, setCurrentSignatureField] = useState<string | null>(null);
   const [signatures, setSignatures] = useState<Record<string, string>>({});
+  const [renderTrigger, setRenderTrigger] = useState(0);
+  const lastRenderKey = useRef<string>('');
+  const [currentFieldDimensions, setCurrentFieldDimensions] = useState<{width: number, height: number} | null>(null);
 
   // Cache management
   const getCacheKey = useCallback((pageNumber: number, scale: number) => {
@@ -198,6 +203,21 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     }
   }, [isProvider, isPatient]);
 
+  // Global click debugger to see what's capturing clicks
+  useEffect(() => {
+    const handleGlobalClick = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target.getAttribute && target.getAttribute('data-signature-field')) {
+        console.log('🎯 GLOBAL: Signature button clicked!', target.getAttribute('data-signature-field'));
+      } else {
+        console.log('🎯 GLOBAL: Click on', target.tagName, target.className, target.id);
+      }
+    };
+    
+    document.addEventListener('click', handleGlobalClick, true); // Use capture phase
+    return () => document.removeEventListener('click', handleGlobalClick, true);
+  }, []);
+
   // Save signature
   const handleSaveSignature = useCallback(async (signatureDataUrl: string) => {
     if (currentSignatureField) {
@@ -220,10 +240,14 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         fieldName: currentSignatureField
       };
 
-      setSignatures(prev => ({
-        ...prev,
-        [currentSignatureField]: signatureDataUrl
-      }));
+      setSignatures(prev => {
+        const newSignatures = {
+          ...prev,
+          [currentSignatureField]: signatureDataUrl
+        };
+        console.log('🖊️ Updated signatures state:', newSignatures);
+        return newSignatures;
+      });
       
       // Store signature data in form data (just the image for backend compatibility)
       // Store metadata in a separate field for admin viewing
@@ -236,17 +260,19 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         console.log('🖊️ Updated form data with signature:', newFormData);
         console.log('🖊️ Signature field:', currentSignatureField);
         console.log('🖊️ Signature data length:', signatureDataUrl.length);
+        console.log('🖊️ Current recipient type:', workflowContext?.currentRecipientType);
+        console.log('🖊️ Current signatures before save:', signatures);
         return newFormData;
       });
       
       setCurrentSignatureField(null);
       setSignatureDialogOpen(false);
       
-      // Trigger re-render to show signature in PDF using a timeout to ensure state is updated
-      setTimeout(() => {
-        const renderFn = (window as any).pdfRenderFunction;
-        if (renderFn) renderFn();
-      }, 100);
+      // Only trigger re-render if signature was actually saved
+      if (currentSignatureField && signatureDataUrl) {
+        console.log('🖊️ Signature saved, triggering minimal re-render');
+        setRenderTrigger(prev => prev + 1);
+      }
     }
   }, [currentSignatureField, workflowContext?.currentRecipientName]);
 
@@ -345,8 +371,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         // Clear cache when new document loads
         pageCache.current.clear();
         
-        // Reset auto-resize flag for new document
-        setHasAutoResized(false);
+        // Auto-resize removed - was causing issues
         
         // Call onLoad callback if provided
         if (onLoad) {
@@ -412,17 +437,33 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
 
   // Enhanced page rendering with native PDF.js form support
   const renderPage = useCallback(async () => {
-    if (!pdfDocument || !canvasRef.current || pageRendering) return;
+    if (!pdfDocument || !canvasRef.current || pageRendering) {
+      if (pageRendering) {
+        console.log('🚫 Page already rendering, skipping...');
+      }
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    const textLayer = textLayerRef.current;
+    const annotationLayer = annotationLayerRef.current;
+    
+    // Early validation before setting pageRendering to true
+    if (!context) {
+      console.warn('Canvas context not available, skipping render');
+      return;
+    }
 
     setPageRendering(true);
     
+    // Safety timeout to prevent spinner from getting stuck
+    const safetyTimeout = setTimeout(() => {
+      console.warn('Page rendering timed out, resetting pageRendering state');
+      setPageRendering(false);
+    }, 10000); // 10 second timeout
+    
     try {
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      const textLayer = textLayerRef.current;
-      const annotationLayer = annotationLayerRef.current;
-      
-      if (!context) return;
 
       const scale = zoomLevel / 100;
       
@@ -465,7 +506,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       offscreenCanvas.height = viewport.height;
       const offscreenContext = offscreenCanvas.getContext('2d');
       
-      if (!offscreenContext) return;
+      if (!offscreenContext) {
+        throw new Error('Failed to create offscreen canvas context');
+      }
 
       const renderContext = {
         canvasContext: offscreenContext,
@@ -533,11 +576,16 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                 const x = x1 * annotationViewport.scale;
                 const y = (annotationViewport.height - y2 * annotationViewport.scale);
                 
+                // Calculate field dimensions for signature dialog (available for all fields)
+                const fieldWidth = width;
+                const fieldHeight = height;
+                
                 element.style.position = 'absolute';
                 element.style.left = `${x}px`;
                 element.style.top = `${y}px`;
                 element.style.width = `${width}px`;
                 element.style.height = `${height}px`;
+                element.style.zIndex = '100'; // Ensure parent element has z-index
               }
               
               // Handle form fields
@@ -588,27 +636,56 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     
                     const currentSignature = signatures[fieldName] || existingSignature;
                     
+                    console.log('🔍 Signature field processing:', {
+                      fieldName,
+                      hasCurrentSignature: !!currentSignature,
+                      currentSignatureType: typeof currentSignature,
+                      signaturesState: signatures,
+                      existingSignature: !!existingSignature
+                    });
+                    
                     // Determine if current user can sign this field
                     const canSign = (isPatient() && isPatientSignature) || (isProvider() && isLastSignature);
                     
+                    console.log('🔍 Signature field visibility:', {
+                      fieldName,
+                      canSign,
+                      isProvider: isProvider(),
+                      isPatient: isPatient(),
+                      isPatientSignature,
+                      isLastSignature,
+                      currentRecipientType: workflowContext?.currentRecipientType
+                    });
+
                     if (canSign) {
+                      console.log('✅ Creating clickable signature button for:', fieldName);
                       // Editable signature field for authorized user
                       const sigButton = document.createElement('button');
+                      sigButton.setAttribute('data-signature-field', fieldName);
+                      sigButton.setAttribute('data-testid', `signature-button-${fieldName}`);
                       sigButton.style.position = 'absolute';
                       sigButton.style.left = '0';
                       sigButton.style.top = '0';
                       sigButton.style.width = '100%';
                       sigButton.style.height = '100%';
-                      sigButton.style.backgroundColor = currentSignature ? 'rgba(76, 175, 80, 0.1)' : 'rgba(33, 150, 243, 0.1)';
-                      sigButton.style.border = currentSignature ? '2px solid #4CAF50' : '2px dashed #2196F3';
+                      sigButton.style.backgroundColor = currentSignature ? 'rgba(76, 175, 80, 0.2)' : 'rgba(33, 150, 243, 0.3)';
+                      sigButton.style.border = currentSignature ? '3px solid #4CAF50' : '3px dashed #2196F3';
                       sigButton.style.cursor = 'pointer';
                       sigButton.style.display = 'flex';
                       sigButton.style.alignItems = 'center';
                       sigButton.style.justifyContent = 'center';
-                      sigButton.style.fontSize = '12px';
-                      sigButton.style.color = currentSignature ? '#4CAF50' : '#2196F3';
+                      sigButton.style.fontSize = '14px';
+                      sigButton.style.color = currentSignature ? '#2e7d32' : '#1976d2';
                       sigButton.style.fontWeight = 'bold';
-                      sigButton.style.zIndex = '1000';
+                      sigButton.style.zIndex = '9999';
+                      sigButton.style.textShadow = '0 0 2px rgba(255,255,255,0.8)';
+                      sigButton.style.boxShadow = currentSignature ? '0 2px 4px rgba(76, 175, 80, 0.3)' : '0 2px 4px rgba(33, 150, 243, 0.3)';
+                      sigButton.style.transition = 'all 0.2s ease';
+                      sigButton.style.borderRadius = '4px';
+                      sigButton.style.isolation = 'isolate'; // Create new stacking context
+                      sigButton.style.pointerEvents = 'auto'; // Ensure clickable
+                      sigButton.style.outline = currentSignature ? 'none' : '2px solid #ff9800'; // Orange outline for debugging unsigned fields
+                      sigButton.style.outlineOffset = '2px';
                       sigButton.textContent = currentSignature ? '✓ Signed' : 'Click to Sign';
                       
                       // Show signature image if available
@@ -622,14 +699,70 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                         sigButton.appendChild(sigImg);
                       }
                       
-                      sigButton.addEventListener('click', (e) => {
+                      // Add hover effects for better interactivity
+                      sigButton.addEventListener('mouseenter', () => {
+                        if (!currentSignature) {
+                          sigButton.style.backgroundColor = 'rgba(33, 150, 243, 0.4)';
+                          sigButton.style.transform = 'scale(1.02)';
+                        }
+                      });
+                      
+                      sigButton.addEventListener('mouseleave', () => {
+                        if (!currentSignature) {
+                          sigButton.style.backgroundColor = 'rgba(33, 150, 243, 0.3)';
+                          sigButton.style.transform = 'scale(1)';
+                        }
+                      });
+                      
+                      // Field dimensions already calculated above in outer scope
+                      
+                      // Add debugging for click events
+                      console.log('🔧 Adding click listener to signature button for field:', fieldName);
+                      
+                      // Calculate field dimensions here where we have access to rect variables
+                      const currentFieldWidth = rect ? (rect[2] - rect[0]) * annotationViewport.scale : 200;
+                      const currentFieldHeight = rect ? (rect[3] - rect[1]) * annotationViewport.scale : 100;
+                      
+                      const handleClick = (e) => {
+                        console.log('🖱️ SIGNATURE BUTTON CLICKED!', { fieldName, event: e });
                         e.preventDefault();
                         e.stopPropagation();
-                        console.log('Signature button clicked for field:', fieldName);
+                        console.log('🖊️ Signature button clicked for field:', fieldName);
+                        
+                        // Use calculated field dimensions for signature dialog sizing
+                        setCurrentFieldDimensions({ width: currentFieldWidth, height: currentFieldHeight });
+                        console.log('🖊️ Field dimensions:', { width: currentFieldWidth, height: currentFieldHeight });
+                        
                         handleSignatureFieldClick(fieldName);
+                      };
+                      
+                      sigButton.addEventListener('click', handleClick);
+                      
+                      // Fallback: Direct onclick handler
+                      sigButton.onclick = handleClick;
+                      
+                      // Also add mousedown for debugging
+                      sigButton.addEventListener('mousedown', (e) => {
+                        console.log('🖱️ SIGNATURE BUTTON MOUSEDOWN!', fieldName);
+                      });
+                      
+                      // Add mouseover debugging
+                      sigButton.addEventListener('mouseover', () => {
+                        console.log('🖱️ SIGNATURE BUTTON MOUSEOVER!', fieldName);
                       });
                       
                       element.appendChild(sigButton);
+                      console.log('✅ Signature button attached to DOM for field:', fieldName, {
+                        buttonElement: sigButton,
+                        parentElement: element,
+                        buttonVisible: sigButton.offsetWidth > 0 && sigButton.offsetHeight > 0,
+                        buttonStyles: {
+                          position: sigButton.style.position,
+                          zIndex: sigButton.style.zIndex,
+                          pointerEvents: sigButton.style.pointerEvents,
+                          display: sigButton.style.display
+                        }
+                      });
                     } else {
                       // Readonly signature field (patient can't sign provider field, provider can't sign patient fields)
                       const sigDisplay = document.createElement('div');
@@ -880,36 +1013,23 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         setCachedPage(currentPage, scale, canvas);
       }
       
-      // Auto-resize on first render when refs are available
-      if (pdfDocument && !hasAutoResized && currentPage === 1) {
-        setHasAutoResized(true);
-        await autoResizePDFToCanvas(pdfDocument);
-      }
+      // Auto-resize disabled - was causing resize loops
         
     } catch (err) {
+      console.error('Page rendering failed:', err);
       setError(`Failed to render page: ${err}`);
     } finally {
+      clearTimeout(safetyTimeout);
       setPageRendering(false);
     }
   }, [
     pdfDocument, 
     currentPage, 
-    zoomLevel, 
-    enableFormInteraction,
-    getCachedPage,
-    setCachedPage,
-    hideSignatureFieldsOnCanvas,
-    hasAutoResized,
-    autoResizePDFToCanvas,
-    setFormFields,
-    onFormDataChange,
-    setError,
-    allWorkflowFormData,
-    workflowContext,
+    zoomLevel,
     signatures,
-    isProvider,
-    isPatient,
-    handleSignatureFieldClick
+    allWorkflowFormData,
+    workflowContext?.currentRecipientType
+    // Added back critical dependencies for signature rendering
   ]);
 
   // Expose renderPage function to window for signature re-rendering
@@ -920,15 +1040,58 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     };
   }, [renderPage]);
 
-  // Re-render when recipient type changes (to update signature fields)
+  // Set initial zoom to fit page width to container
   React.useEffect(() => {
-    if (workflowContext?.currentRecipientType && pdfDocument) {
-      console.log('🔄 Recipient type changed to:', workflowContext.currentRecipientType, '- re-rendering page');
-      renderPage();
+    if (pdfDocument && containerRef.current && currentPage > 0) {
+      const setInitialZoom = async () => {
+        try {
+          const page = await pdfDocument.getPage(1);
+          const viewport = page.getViewport({ scale: 1.0 });
+          const container = containerRef.current;
+          
+          if (container) {
+            const containerWidth = container.clientWidth - (showThumbnails ? 200 : 0) - 40; // Account for thumbnails and padding
+            const containerHeight = container.clientHeight - 80; // Account for toolbar height
+            
+            // Calculate zoom to fit width
+            const widthScale = containerWidth / viewport.width;
+            const heightScale = containerHeight / viewport.height;
+            
+            // Use the smaller scale to ensure the page fits completely
+            const initialScale = Math.min(widthScale, heightScale, 1.5); // Cap at 150% for readability
+            const initialZoom = Math.max(50, Math.min(200, initialScale * 100)); // Clamp between 50% and 200%
+            
+            console.log('📏 Setting initial zoom:', {
+              containerWidth,
+              containerHeight,
+              viewportWidth: viewport.width,
+              viewportHeight: viewport.height,
+              widthScale,
+              heightScale,
+              initialScale,
+              initialZoom: Math.round(initialZoom)
+            });
+            
+            // Only set zoom if it's significantly different from current zoom
+            if (Math.abs(zoomLevel - initialZoom) > 5) {
+              const { setZoomLevel } = usePDFStore.getState();
+              setZoomLevel(Math.round(initialZoom));
+            }
+          }
+        } catch (error) {
+          console.error('Failed to set initial zoom:', error);
+        }
+      };
+      
+      // Set initial zoom once when PDF loads
+      setInitialZoom();
     }
-  }, [workflowContext?.currentRecipientType, pdfDocument, renderPage]);
+  }, [pdfDocument, showThumbnails]);
 
-  // Render current page with debouncing for zoom changes
+  // Re-render when recipient type changes (to update signature fields) - REMOVED to prevent loops
+  // Recipient type changes are now handled by the main render effect
+
+  // Render current page - SIMPLIFIED to prevent loops
   useEffect(() => {
     if (!pdfDocument || currentPage <= 0) return;
     
@@ -938,25 +1101,19 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       return;
     }
     
-    // Clear any pending render
-    if (renderTimeoutRef.current) {
-      clearTimeout(renderTimeoutRef.current);
+    // Prevent duplicate renders of the same content
+    const signaturesHash = JSON.stringify(signatures);
+    const renderKey = `${currentPage}-${zoomLevel}-${renderTrigger}-${workflowDataLoaded}-${signaturesHash.length}`;
+    if (lastRenderKey.current === renderKey) {
+      console.log('🚫 Skipping duplicate render for:', renderKey);
+      return;
     }
     
-    // For page changes, render immediately
-    // For zoom changes, debounce to avoid flicker
-    const delay = 0; // Immediate render for now, can be adjusted if needed
+    lastRenderKey.current = renderKey;
+    console.log('🎨 Rendering page:', renderKey);
     
-    renderTimeoutRef.current = setTimeout(() => {
-      renderPage();
-    }, delay);
-    
-    return () => {
-      if (renderTimeoutRef.current) {
-        clearTimeout(renderTimeoutRef.current);
-      }
-    };
-  }, [pdfDocument, currentPage, zoomLevel, enableFormInteraction, allWorkflowFormData, workflowContext?.isWorkflowContext, workflowDataLoaded]);
+    renderPage();
+  }, [pdfDocument, currentPage, zoomLevel, workflowDataLoaded, renderTrigger, signatures]);
 
   // Mouse wheel zoom handling
   const handleWheel = useCallback((event: React.WheelEvent) => {
@@ -1131,10 +1288,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <PDFToolbar 
         workflowContext={workflowContext} 
-        getCurrentFormData={() => ({
+        getCurrentFormData={getCurrentFormData || (() => ({
           ...currentFormData,
           ...signatures  // Include signatures in the form data
-        })}
+        }))}
       />
       
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -1209,8 +1366,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                   ref={canvasRef}
                   style={{
                     display: 'block',
-                    maxWidth: '100%',
-                    height: 'auto',
+                    // Remove maxWidth to prevent layout recalculations
+                    // maxWidth: '100%',
+                    // height: 'auto',
                     border: '1px solid #ccc',
                     backgroundColor: 'white',
                     boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
@@ -1295,6 +1453,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         onClose={handleCloseSignatureDialog}
         onSave={handleSaveSignature}
         recipientName={workflowContext?.currentRecipientName || 'Provider'}
+        fieldDimensions={currentFieldDimensions}
       />
     </Box>
   );

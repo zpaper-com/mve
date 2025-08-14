@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const Database = require('./database.cjs');
+const PDFFormFillerService = require('./services/pdfFormFiller.cjs');
 require('dotenv').config({ path: '../.env' });
 
 const app = express();
@@ -65,6 +66,13 @@ const upload = multer({
 // Serve uploaded files statically
 app.use('/uploads', express.static(uploadsDir));
 
+// Create and serve completed forms directory
+const completedFormsDir = path.join(__dirname, 'completed_forms');
+if (!fs.existsSync(completedFormsDir)) {
+  fs.mkdirSync(completedFormsDir, { recursive: true });
+}
+app.use('/completed_forms', express.static(completedFormsDir));
+
 // Initialize Twilio client
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -73,6 +81,9 @@ const client = twilio(
 
 // Initialize database
 const db = new Database();
+
+// Initialize PDF form filler service
+const pdfFiller = new PDFFormFillerService();
 
 // Initialize database on startup
 async function initializeDatabase() {
@@ -88,6 +99,63 @@ async function initializeDatabase() {
 // Helper function to generate UUIDs
 function generateWorkflowUUID() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
+// Helper function to get workflow with all form data
+async function getWorkflowWithFormData(workflowId) {
+  try {
+    const workflow = await db.getWorkflowById(workflowId);
+    if (!workflow) return null;
+    
+    // Add form data history from all recipients
+    const recipients = await db.getRecipientsByWorkflow(workflowId);
+    workflow.formDataHistory = recipients
+      .filter(r => r.form_data && r.status === 'completed')
+      .map(r => ({
+        recipient_name: r.recipient_name,
+        recipient_type: r.recipient_type,
+        form_data: typeof r.form_data === 'string' ? JSON.parse(r.form_data) : r.form_data,
+        submitted_at: r.submitted_at
+      }));
+    
+    return workflow;
+  } catch (error) {
+    console.error('Error getting workflow with form data:', error);
+    return null;
+  }
+}
+
+// Generate completed PDF for workflow
+async function generateCompletedPDF(workflowId) {
+  try {
+    console.log(`🔧 Generating completed PDF for workflow: ${workflowId}`);
+    
+    // Get workflow data with all form submissions
+    const workflowData = await getWorkflowWithFormData(workflowId);
+    
+    if (!workflowData) {
+      console.error(`❌ Workflow ${workflowId} not found`);
+      return;
+    }
+    
+    // Generate the filled and flattened PDF
+    const completedPdfPath = await pdfFiller.fillAndFlattenPDF(
+      workflowData.document_url || workflowData.documentUrl,
+      workflowData,
+      workflowId
+    );
+    
+    // Get relative path for serving
+    const relativePath = pdfFiller.getRelativePath(completedPdfPath);
+    
+    // Update database with completed PDF path
+    await db.updateWorkflowCompletedPDF(workflowId, relativePath);
+    
+    console.log(`✅ Completed PDF generated and saved: ${relativePath}`);
+    
+  } catch (error) {
+    console.error(`❌ Error generating completed PDF for workflow ${workflowId}:`, error);
+  }
 }
 
 // Email endpoint
@@ -780,6 +848,11 @@ app.post('/api/recipients/:token/submit', async (req, res) => {
       try {
         await db.updateWorkflowStatus(recipient.workflow_id, 'completed');
         console.log(`✅ Workflow ${recipient.workflow_id} marked as completed in database!`);
+        
+        // Generate completed PDF form
+        console.log(`🔧 Starting PDF form generation for completed workflow ${recipient.workflow_id}`);
+        generateCompletedPDF(recipient.workflow_id);
+        
       } catch (statusError) {
         console.warn('⚠️ Failed to update workflow status to completed:', statusError);
       }
@@ -824,6 +897,151 @@ app.get('/api/stats', async (req, res) => {
     
     res.status(500).json({
       error: 'Failed to get statistics',
+      details: error.message
+    });
+  }
+});
+
+// Process existing completed workflows to generate PDFs
+app.post('/api/admin/process-completed-pdfs', async (req, res) => {
+  try {
+    console.log('🔄 Processing existing completed workflows to generate PDFs...');
+    
+    await pdfFiller.processExistingCompletedWorkflows(async () => {
+      return await db.getCompletedWorkflows();
+    });
+    
+    res.json({
+      success: true,
+      message: 'Completed workflows processed successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error processing completed workflows:', error);
+    
+    res.status(500).json({
+      error: 'Failed to process completed workflows',
+      details: error.message
+    });
+  }
+});
+
+// Post workflow to webhook endpoint
+app.post('/api/admin/webhook-post/:workflowId', async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    console.log('🔗 Posting webhook for workflow:', workflowId);
+    
+    // Get the workflow data
+    let workflowData = null;
+    
+    // Get all workflows and find the matching one
+    const allWorkflows = await new Promise((resolve, reject) => {
+      db.db.all(`SELECT * FROM workflows WHERE id = ?`, [workflowId], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      });
+    });
+    
+    if (allWorkflows.length === 0) {
+      return res.status(404).json({
+        error: 'Workflow not found'
+      });
+    }
+    
+    workflowData = allWorkflows[0];
+    
+    // Get form data history
+    workflowData.formDataHistory = await db.getWorkflowFormData(workflowId);
+    
+    if (!workflowData) {
+      return res.status(404).json({
+        error: 'Workflow not found'
+      });
+    }
+    
+    if (workflowData.status !== 'completed') {
+      return res.status(400).json({
+        error: 'Workflow must be completed to post webhook'
+      });
+    }
+    
+    if (!workflowData.completed_pdf_path) {
+      return res.status(400).json({
+        error: 'Completed PDF not found for workflow'
+      });
+    }
+    
+    // Read the PDF file
+    const pdfPath = path.join(__dirname, workflowData.completed_pdf_path.replace('/', ''));
+    
+    if (!fs.existsSync(pdfPath)) {
+      return res.status(404).json({
+        error: 'PDF file not found on disk'
+      });
+    }
+    
+    const FormData = require('form-data');
+    const form = new FormData();
+    
+    // Add the PDF file
+    form.append('pdf', fs.createReadStream(pdfPath), {
+      filename: `workflow_${workflowData.uuid}_completed.pdf`,
+      contentType: 'application/pdf'
+    });
+    
+    // Add the workflow data as JSON
+    const webhookData = {
+      workflow: {
+        id: workflowData.id,
+        uuid: workflowData.uuid,
+        status: workflowData.status,
+        document_url: workflowData.document_url,
+        created_at: workflowData.created_at,
+        updated_at: workflowData.updated_at,
+        completed_at: workflowData.updated_at
+      },
+      formDataHistory: workflowData.formDataHistory || [],
+      recipients: await db.getRecipientsByWorkflow(workflowId),
+      notifications: await db.getNotificationsByWorkflow(workflowId),
+      attachments: await db.getAttachmentsByWorkflow(workflowId)
+    };
+    
+    form.append('metadata', JSON.stringify(webhookData), {
+      contentType: 'application/json'
+    });
+    
+    // Post to the webhook URL
+    const webhookUrl = 'https://qa190.zpaper.com/r/sparks/agent';
+    
+    console.log('🚀 Sending webhook to:', webhookUrl);
+    
+    const webhookResponse = await fetch(webhookUrl, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+    
+    if (!webhookResponse.ok) {
+      const errorText = await webhookResponse.text();
+      throw new Error(`Webhook failed: ${webhookResponse.status} - ${errorText}`);
+    }
+    
+    const result = await webhookResponse.text();
+    
+    console.log('✅ Webhook posted successfully:', result);
+    
+    res.json({
+      success: true,
+      message: 'Webhook posted successfully',
+      webhookResponse: result
+    });
+    
+  } catch (error) {
+    console.error('❌ Error posting webhook:', error);
+    
+    res.status(500).json({
+      error: 'Failed to post webhook',
       details: error.message
     });
   }

@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Chip,
 } from '@mui/material';
 import {
   MenuOpen,
@@ -29,6 +30,40 @@ import SendToDialog from '../SendToDialog/SendToDialog';
 import AttachmentDialog from '../AttachmentDialog/AttachmentDialog';
 import ZoomControls from './ZoomControls';
 
+// Import recipient type configuration for display
+const recipientTypeConfig = {
+  PRESCRIBER: {
+    label: 'Provider',
+    color: '#2e7d32',
+    bgcolor: '#e8f5e8',
+  },
+  PATIENT: {
+    label: 'Patient',
+    color: '#1976d2',
+    bgcolor: '#e3f2fd',
+  },
+  PHARMACY: {
+    label: 'Pharmacy',
+    color: '#ed6c02',
+    bgcolor: '#fff3e0',
+  },
+  INSURANCE: {
+    label: 'Insurance',
+    color: '#9c27b0',
+    bgcolor: '#f3e5f5',
+  },
+  MEDSTAFF: {
+    label: 'Med-Staff',
+    color: '#d32f2f',
+    bgcolor: '#ffebee',
+  },
+  CUSTOM: {
+    label: 'Other',
+    color: '#616161',
+    bgcolor: '#f5f5f5',
+  },
+} as const;
+
 interface PDFToolbarProps {
   workflowContext?: {
     isWorkflowContext: boolean;
@@ -36,6 +71,8 @@ interface PDFToolbarProps {
     currentRecipientIndex: number | null;
     isLastRecipient: boolean;
     currentRecipientToken: string | null;
+    currentRecipientType?: string | null;
+    currentRecipientName?: string | null;
   };
   getCurrentFormData?: () => Record<string, any>;
 }
@@ -179,6 +216,29 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
               {showThumbnails ? <VisibilityOff /> : <Visibility />}
             </IconButton>
           </Tooltip>
+
+          {/* Workflow Title */}
+          {workflowContext?.isWorkflowContext && workflowContext.currentRecipientName && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
+              <Typography variant="h6" sx={{ color: 'inherit', fontWeight: 500 }}>
+                {workflowContext.currentRecipientName}
+              </Typography>
+              {workflowContext.currentRecipientType && (
+                <Chip
+                  label={
+                    recipientTypeConfig[workflowContext.currentRecipientType as keyof typeof recipientTypeConfig]?.label || 
+                    workflowContext.currentRecipientType
+                  }
+                  size="small"
+                  sx={{
+                    bgcolor: recipientTypeConfig[workflowContext.currentRecipientType as keyof typeof recipientTypeConfig]?.bgcolor || '#f5f5f5',
+                    color: recipientTypeConfig[workflowContext.currentRecipientType as keyof typeof recipientTypeConfig]?.color || '#616161',
+                    fontWeight: 500,
+                  }}
+                />
+              )}
+            </Box>
+          )}
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title="Previous Page (← or Page Up)">

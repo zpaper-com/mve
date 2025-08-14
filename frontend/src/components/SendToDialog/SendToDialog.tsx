@@ -312,11 +312,6 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
       
       setSuccessMessage(`Workflow created successfully! UUID: ${workflowData.workflow.uuid}. ${notificationMessage}`);
       
-      // Close dialog after short delay to show success message
-      setTimeout(() => {
-        handleClose();
-      }, 2000);
-      
       if (onSuccess) {
         onSuccess(workflowData.workflow.uuid);
       }
@@ -348,7 +343,7 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
     <>
       <Dialog
         open={open}
-        onClose={handleClose}
+        onClose={() => {}} // Disable backdrop/escape key closing
         maxWidth="lg"
         fullWidth
         PaperProps={{
@@ -511,64 +506,81 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
         </DialogContent>
 
         <DialogActions sx={{ p: 3, justifyContent: 'space-between' }}>
-          {/* Cancel button */}
-          <Button 
-            onClick={handleClose} 
-            disabled={isCreatingWorkflow}
-            color="inherit"
-          >
-            Cancel
-          </Button>
-          
-          {/* Navigation buttons */}
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            {/* Back button */}
-            {activeStep > 0 && (
+          {/* Show different actions based on success state */}
+          {successMessage ? (
+            // Success state - show only Done button
+            <>
+              <Box /> {/* Empty space for alignment */}
               <Button 
-                onClick={handleBack}
-                disabled={isCreatingWorkflow}
-                startIcon={<ArrowBack />}
-                variant="outlined"
-              >
-                Back
-              </Button>
-            )}
-            
-            {/* Next/Submit button */}
-            {activeStep < steps.length - 1 ? (
-              <Button 
-                variant="contained" 
-                onClick={handleNext}
-                disabled={!canProceed || isCreatingWorkflow}
-                endIcon={<ArrowForward />}
-              >
-                Next
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                form="workflow-form"
+                onClick={handleClose} 
                 variant="contained"
-                disabled={isSubmitDisabled}
-                startIcon={isCreatingWorkflow ? undefined : <Send />}
-                sx={{ minWidth: 120 }}
+                color="success"
+                startIcon={<CheckCircle />}
               >
-                {isCreatingWorkflow ? 'Creating...' : 'Create Workflow'}
+                Done
               </Button>
-            )}
-          </Box>
+            </>
+          ) : (
+            // Normal state - show Cancel and navigation buttons
+            <>
+              {/* Cancel button */}
+              <Button 
+                onClick={handleClose} 
+                disabled={isCreatingWorkflow}
+                color="inherit"
+              >
+                Cancel
+              </Button>
+              
+              {/* Navigation buttons */}
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                {/* Back button */}
+                {activeStep > 0 && (
+                  <Button 
+                    onClick={handleBack}
+                    disabled={isCreatingWorkflow}
+                    startIcon={<ArrowBack />}
+                    variant="outlined"
+                  >
+                    Back
+                  </Button>
+                )}
+                
+                {/* Next/Submit button */}
+                {activeStep < steps.length - 1 ? (
+                  <Button 
+                    variant="contained" 
+                    onClick={handleNext}
+                    disabled={!canProceed || isCreatingWorkflow}
+                    endIcon={<ArrowForward />}
+                  >
+                    Next
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    form="workflow-form"
+                    variant="contained"
+                    disabled={isSubmitDisabled}
+                    startIcon={isCreatingWorkflow ? undefined : <Send />}
+                    sx={{ minWidth: 120 }}
+                  >
+                    {isCreatingWorkflow ? 'Creating...' : 'Create Workflow'}
+                  </Button>
+                )}
+              </Box>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 
       {/* Success snackbar */}
       <Snackbar
         open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
+        onClose={() => {}} // Disable auto-close
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <Alert 
-          onClose={() => setSuccessMessage('')} 
           severity="success" 
           variant="filled"
           sx={{ width: '100%' }}
