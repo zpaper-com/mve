@@ -146,6 +146,8 @@ const AdminPanel: React.FC = () => {
   const [selectedAttachment, setSelectedAttachment] = useState<any>(null);
   const [formDataDialogOpen, setFormDataDialogOpen] = useState(false);
   const [selectedFormData, setSelectedFormData] = useState<any>(null);
+  const [signatureViewerOpen, setSignatureViewerOpen] = useState(false);
+  const [selectedSignature, setSelectedSignature] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
@@ -328,9 +330,21 @@ MVE PDF Workflow System`,
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-      <Typography variant="h3" component="h1" gutterBottom>
-        Admin Panel
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <img 
+          src="/Sprkz.png" 
+          alt="Sprkz Logo" 
+          style={{ width: 40, height: 40, marginRight: 16 }}
+        />
+        <Box>
+          <Typography variant="h3" component="h1" gutterBottom sx={{ mb: 0 }}>
+            Admin Panel
+          </Typography>
+          <Typography variant="subtitle1" color="text.secondary">
+            MVE PDF Workflow System
+          </Typography>
+        </Box>
+      </Box>
       <Typography variant="subtitle1" color="text.secondary" gutterBottom>
         Manage workflows, notifications, and message templates
       </Typography>
@@ -470,6 +484,7 @@ MVE PDF Workflow System`,
                             <TableCell>Mobile</TableCell>
                             <TableCell>Type</TableCell>
                             <TableCell>Status</TableCell>
+                            <TableCell>Signature</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -481,6 +496,95 @@ MVE PDF Workflow System`,
                               <TableCell>{recipient.recipient_type}</TableCell>
                               <TableCell>
                                 <Chip label={recipient.status} size="small" color={getStatusColor(recipient.status) as any} />
+                              </TableCell>
+                              <TableCell>
+                                {recipient.recipient_type === 'PRESCRIBER' ? (
+                                  (() => {
+                                    // Look for signature in form data history
+                                    const recipientSubmission = workflow.formDataHistory?.find(
+                                      (submission: any) => submission.recipient_name === recipient.recipient_name
+                                    );
+                                    
+                                    // Debug logging for signature detection
+                                    if (recipient.recipient_type === 'PRESCRIBER') {
+                                      console.log('🔍 Checking signatures for provider:', recipient.recipient_name);
+                                      console.log('🔍 Recipient submission:', recipientSubmission);
+                                      if (recipientSubmission?.form_data) {
+                                        console.log('🔍 Form data keys:', Object.keys(recipientSubmission.form_data));
+                                        console.log('🔍 Form data:', recipientSubmission.form_data);
+                                      }
+                                    }
+                                    
+                                    const hasSignature = recipientSubmission?.form_data && 
+                                      Object.keys(recipientSubmission.form_data).some(key => 
+                                        key.toLowerCase().includes('signature') || 
+                                        key.toLowerCase().includes('prescriber') ||
+                                        key.toLowerCase().includes('sign') ||
+                                        key.toLowerCase().includes('auth')
+                                      ) && Object.values(recipientSubmission.form_data).some(value => 
+                                        typeof value === 'string' && value.startsWith('data:image/')
+                                      );
+                                    
+                                    if (hasSignature) {
+                                      return (
+                                        <Button 
+                                          size="small" 
+                                          variant="outlined" 
+                                          color="success"
+                                          onClick={() => {
+                                            // Find the signature field and value
+                                            const signatureField = Object.entries(recipientSubmission.form_data).find(([key, value]) => 
+                                              (key.toLowerCase().includes('signature') || 
+                                               key.toLowerCase().includes('prescriber') ||
+                                               key.toLowerCase().includes('sign') ||
+                                               key.toLowerCase().includes('auth')) &&
+                                              typeof value === 'string' && value.startsWith('data:image/')
+                                            );
+                                            if (signatureField) {
+                                              // Look for metadata
+                                              const metadataKey = `${signatureField[0]}_metadata`;
+                                              const metadataString = recipientSubmission.form_data[metadataKey];
+                                              let metadata = null;
+                                              if (metadataString) {
+                                                try {
+                                                  metadata = JSON.parse(metadataString);
+                                                } catch (e) {
+                                                  console.warn('Failed to parse signature metadata:', e);
+                                                }
+                                              }
+                                              
+                                              setSelectedSignature({
+                                                recipientName: recipient.recipient_name,
+                                                fieldName: signatureField[0],
+                                                signatureData: signatureField[1],
+                                                metadata: metadata
+                                              });
+                                              setSignatureViewerOpen(true);
+                                            }
+                                          }}
+                                        >
+                                          View Signature
+                                        </Button>
+                                      );
+                                    } else if (recipient.status === 'completed') {
+                                      return (
+                                        <Typography variant="caption" color="text.secondary">
+                                          No Signature Found
+                                        </Typography>
+                                      );
+                                    } else {
+                                      return (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Not Signed
+                                        </Typography>
+                                      );
+                                    }
+                                  })()
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">
+                                    N/A
+                                  </Typography>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -948,6 +1052,136 @@ MVE PDF Workflow System`,
 
         <DialogActions>
           <Button onClick={() => setFormDataDialogOpen(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Signature Viewer Dialog */}
+      <Dialog
+        open={signatureViewerOpen}
+        onClose={() => setSignatureViewerOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: { 
+            height: '80vh',
+            maxHeight: '600px',
+          },
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="h6" component="div">
+                Digital Signature
+              </Typography>
+              {selectedSignature && (
+                <Typography variant="body2" color="text.secondary">
+                  Signed by {selectedSignature.recipientName} - Field: {selectedSignature.fieldName}
+                </Typography>
+              )}
+            </Box>
+            <IconButton 
+              onClick={() => setSignatureViewerOpen(false)}
+              sx={{ color: 'text.secondary' }}
+            >
+              <Cancel />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent dividers sx={{ p: 0 }}>
+          {selectedSignature?.signatureData ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              {/* Signature Image */}
+              <Box sx={{ 
+                p: 3,
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: '#FAFAFA',
+                borderBottom: '1px solid #E0E0E0'
+              }}>
+                <Box sx={{
+                  border: '2px solid #E0E0E0',
+                  borderRadius: 1,
+                  p: 2,
+                  backgroundColor: 'white',
+                  maxWidth: '100%'
+                }}>
+                  <img 
+                    src={selectedSignature.signatureData}
+                    alt="Digital Signature"
+                    style={{
+                      maxWidth: '500px',
+                      maxHeight: '200px',
+                      objectFit: 'contain',
+                      display: 'block'
+                    }}
+                  />
+                </Box>
+              </Box>
+              
+              {/* Signature Metadata */}
+              <Box sx={{ p: 3 }}>
+                <Typography variant="h6" gutterBottom>
+                  Signature Details
+                </Typography>
+                <Box sx={{ display: 'grid', gap: 2 }}>
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Signed By:
+                    </Typography>
+                    <Typography variant="body1">
+                      {selectedSignature.metadata?.signedBy || selectedSignature.recipientName || 'Unknown'}
+                    </Typography>
+                  </Box>
+                  
+                  {selectedSignature.metadata?.signedAt && (
+                    <Box>
+                      <Typography variant="subtitle2" color="text.secondary">
+                        Date & Time:
+                      </Typography>
+                      <Typography variant="body1">
+                        {formatDate(selectedSignature.metadata.signedAt)}
+                      </Typography>
+                    </Box>
+                  )}
+                  
+                  {selectedSignature.metadata?.signedIP && (
+                    <Box>
+                      <Typography variant="subtitle2" color="text.secondary">
+                        IP Address:
+                      </Typography>
+                      <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
+                        {selectedSignature.metadata.signedIP}
+                      </Typography>
+                    </Box>
+                  )}
+                  
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Field Name:
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                      {selectedSignature.fieldName}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="body1" color="text.secondary">
+                No signature data available
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setSignatureViewerOpen(false)}>
             Close
           </Button>
         </DialogActions>

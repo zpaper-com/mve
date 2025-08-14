@@ -15,9 +15,17 @@ import AdminPanel from './components/AdminPanel/AdminPanel';
 // Simple demo component
 function SimpleHome() {
   return (
-    <div style={{ padding: 20 }}>
-      <h1>MVE PDF Viewer</h1>
-      <p>Available routes:</p>
+    <div style={{ padding: 20, maxWidth: 800, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
+        <img 
+          src="/Sprkz.png" 
+          alt="Sprkz Logo" 
+          style={{ width: 48, height: 48, marginRight: 16 }}
+        />
+        <h1 style={{ margin: 0 }}>MVE PDF Workflow System</h1>
+      </div>
+      <p>Sequential PDF form completion workflow system</p>
+      <h3>Available routes:</h3>
       <ul>
         <li><a href="/pdf">PDF Viewer Demo</a></li>
         <li><a href="/merx">Legacy PDF Route</a> (redirects to /pdf)</li>

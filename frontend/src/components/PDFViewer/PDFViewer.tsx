@@ -22,6 +22,7 @@ const DEFAULT_PDF_CONFIG = {
 };
 import PDFToolbar from './PDFToolbar';
 import ThumbnailPanel from './ThumbnailPanel';
+import SignatureDialog from './SignatureDialog';
 
 // Configure PDF.js worker with CDN path using the exact package version
 if (typeof window !== 'undefined') {
@@ -35,6 +36,8 @@ interface WorkflowContext {
   currentRecipientIndex: number | null;
   isLastRecipient: boolean;
   currentRecipientToken: string | null;
+  currentRecipientType?: string | null;
+  currentRecipientName?: string | null;
 }
 
 interface PDFViewerProps {
@@ -114,6 +117,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   const renderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [currentFormData, setCurrentFormData] = useState<Record<string, any>>({});
   const [allWorkflowFormData, setAllWorkflowFormData] = useState<Record<string, any>>({});
+  const [workflowDataLoaded, setWorkflowDataLoaded] = useState(false);
+  const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
+  const [currentSignatureField, setCurrentSignatureField] = useState<string | null>(null);
+  const [signatures, setSignatures] = useState<Record<string, string>>({});
 
   // Cache management
   const getCacheKey = useCallback((pageNumber: number, scale: number) => {
@@ -162,6 +169,83 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       }
     }
   }, [getCacheKey]);
+
+  // Helper function to check if current user is a provider
+  const isProvider = useCallback(() => {
+    const result = workflowContext?.currentRecipientType === 'PRESCRIBER';
+    console.log('🏥 isProvider check - currentRecipientType:', workflowContext?.currentRecipientType, 'result:', result);
+    return result;
+  }, [workflowContext?.currentRecipientType]);
+
+  // Handle signature field click
+  const handleSignatureFieldClick = useCallback((fieldName: string) => {
+    console.log('🖊️ Signature field clicked:', fieldName, 'isProvider:', isProvider());
+    if (isProvider()) {
+      console.log('🖊️ Opening signature dialog for:', fieldName);
+      setCurrentSignatureField(fieldName);
+      setSignatureDialogOpen(true);
+    } else {
+      console.log('🖊️ User is not a provider, ignoring click');
+    }
+  }, [isProvider]);
+
+  // Save signature
+  const handleSaveSignature = useCallback(async (signatureDataUrl: string) => {
+    if (currentSignatureField) {
+      // Get user's IP address
+      let userIP = 'Unknown';
+      try {
+        const ipResponse = await fetch('https://api.ipify.org?format=json');
+        const ipData = await ipResponse.json();
+        userIP = ipData.ip;
+      } catch (error) {
+        console.warn('Could not fetch IP address:', error);
+      }
+
+      // Create signature metadata
+      const signatureWithMetadata = {
+        signatureData: signatureDataUrl,
+        signedAt: new Date().toISOString(),
+        signedBy: workflowContext?.currentRecipientName || 'Unknown',
+        signedIP: userIP,
+        fieldName: currentSignatureField
+      };
+
+      setSignatures(prev => ({
+        ...prev,
+        [currentSignatureField]: signatureDataUrl
+      }));
+      
+      // Store signature data in form data (just the image for backend compatibility)
+      // Store metadata in a separate field for admin viewing
+      setCurrentFormData(prev => {
+        const newFormData = {
+          ...prev,
+          [currentSignatureField]: signatureDataUrl,
+          [`${currentSignatureField}_metadata`]: JSON.stringify(signatureWithMetadata)
+        };
+        console.log('🖊️ Updated form data with signature:', newFormData);
+        console.log('🖊️ Signature field:', currentSignatureField);
+        console.log('🖊️ Signature data length:', signatureDataUrl.length);
+        return newFormData;
+      });
+      
+      setCurrentSignatureField(null);
+      setSignatureDialogOpen(false);
+      
+      // Trigger re-render to show signature in PDF using a timeout to ensure state is updated
+      setTimeout(() => {
+        const renderFn = (window as any).pdfRenderFunction;
+        if (renderFn) renderFn();
+      }, 100);
+    }
+  }, [currentSignatureField, workflowContext?.currentRecipientName]);
+
+  // Close signature dialog
+  const handleCloseSignatureDialog = useCallback(() => {
+    setCurrentSignatureField(null);
+    setSignatureDialogOpen(false);
+  }, []);
 
   // Auto-resize PDF to fit canvas width
   const autoResizePDFToCanvas = useCallback(async (document: PDFDocumentProxy) => {
@@ -275,6 +359,9 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
 
   // Helper function to hide signature fields on any canvas
   const hideSignatureFieldsOnCanvas = useCallback(async (page: PDFPageProxy, targetCanvas: HTMLCanvasElement, viewport: any) => {
+    // Only hide signature fields if user is not a provider
+    if (isProvider()) return;
+    
     try {
       const annotations = await page.getAnnotations();
       const context = targetCanvas.getContext('2d');
@@ -312,7 +399,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     } catch (err) {
       console.warn('Failed to process annotations:', err);
     }
-  }, []);
+  }, [isProvider]);
 
   // Enhanced page rendering with native PDF.js form support
   const renderPage = useCallback(async () => {
@@ -356,6 +443,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         }
         
         if (annotationLayer) {
+          console.log('🔍 Clearing annotation layer due to canvas resize (this will clear form fields!)');
           annotationLayer.innerHTML = '';
           annotationLayer.style.width = canvas.width + 'px';
           annotationLayer.style.height = canvas.height + 'px';
@@ -413,6 +501,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           
           if (annotations.length > 0) {
             // Clear existing annotations
+            console.log('🔍 Clearing annotation layer for form rendering (this will clear form fields!)');
             annotationLayer.innerHTML = '';
             
             // Create viewport for annotations (don't flip y-axis)
@@ -445,29 +534,124 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
               // Handle form fields
               if (annotation.subtype === 'Widget') {
                 
-                // Skip signature fields
+                // Handle signature fields
                 if (annotation.fieldType === 'Sig' || 
                     (annotation.fieldName && (
                       annotation.fieldName.toLowerCase().includes('signature') ||
                       annotation.fieldName.toLowerCase().includes('prescriber')
                     ))) {
-                  // Create a placeholder for signature fields
-                  const sigPlaceholder = document.createElement('div');
-                  sigPlaceholder.style.position = 'absolute';
-                  sigPlaceholder.style.left = '0';
-                  sigPlaceholder.style.top = '0';
-                  sigPlaceholder.style.width = '100%';
-                  sigPlaceholder.style.height = '100%';
-                  sigPlaceholder.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-                  sigPlaceholder.style.border = '1px dashed #ccc';
-                  sigPlaceholder.style.display = 'flex';
-                  sigPlaceholder.style.alignItems = 'center';
-                  sigPlaceholder.style.justifyContent = 'center';
-                  sigPlaceholder.style.fontSize = '10px';
-                  sigPlaceholder.style.color = '#999';
-                  sigPlaceholder.style.pointerEvents = 'none';
-                  sigPlaceholder.textContent = 'Signature field (hidden)';
-                  element.appendChild(sigPlaceholder);
+                  
+                  // If user is a provider, create signature field (readonly for first 2, editable for last)
+                  console.log('🔍 Processing signature field - isProvider():', isProvider(), 'currentRecipientType:', workflowContext?.currentRecipientType);
+                  console.log('🔍 Workflow context:', workflowContext);
+                  
+                  // Show signature fields for providers only
+                  if (isProvider()) {
+                    // Determine if this is the last signature field (provider signature)
+                    const fieldName = annotation.fieldName || '';
+                    const isLastSignature = fieldName.toLowerCase().includes('prescriber') || 
+                                          fieldName.toLowerCase().includes('provider') ||
+                                          fieldName.toLowerCase().includes('signature3') ||
+                                          fieldName.toLowerCase().includes('sig3');
+                    
+                    console.log('🔍 Signature field found:', fieldName, 'isLastSignature:', isLastSignature);
+                    
+                    // Check if there's existing signature data from workflow
+                    const existingSignature = workflowContext?.isWorkflowContext && allWorkflowFormData && fieldName ? 
+                      allWorkflowFormData[fieldName] : null;
+                    
+                    const currentSignature = signatures[fieldName] || existingSignature;
+                    
+                    if (isLastSignature) {
+                      // Last signature - editable by provider
+                      const sigButton = document.createElement('button');
+                      sigButton.style.position = 'absolute';
+                      sigButton.style.left = '0';
+                      sigButton.style.top = '0';
+                      sigButton.style.width = '100%';
+                      sigButton.style.height = '100%';
+                      sigButton.style.backgroundColor = currentSignature ? 'rgba(76, 175, 80, 0.1)' : 'rgba(33, 150, 243, 0.1)';
+                      sigButton.style.border = currentSignature ? '2px solid #4CAF50' : '2px dashed #2196F3';
+                      sigButton.style.cursor = 'pointer';
+                      sigButton.style.display = 'flex';
+                      sigButton.style.alignItems = 'center';
+                      sigButton.style.justifyContent = 'center';
+                      sigButton.style.fontSize = '12px';
+                      sigButton.style.color = currentSignature ? '#4CAF50' : '#2196F3';
+                      sigButton.style.fontWeight = 'bold';
+                      sigButton.style.zIndex = '1000';
+                      sigButton.textContent = currentSignature ? '✓ Signed' : 'Click to Sign';
+                      
+                      // Show signature image if available
+                      if (currentSignature && typeof currentSignature === 'string' && currentSignature.startsWith('data:image/')) {
+                        const sigImg = document.createElement('img');
+                        sigImg.src = currentSignature;
+                        sigImg.style.maxWidth = '100%';
+                        sigImg.style.maxHeight = '100%';
+                        sigImg.style.objectFit = 'contain';
+                        sigButton.innerHTML = '';
+                        sigButton.appendChild(sigImg);
+                      }
+                      
+                      sigButton.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('Signature button clicked for field:', fieldName);
+                        handleSignatureFieldClick(fieldName);
+                      });
+                      
+                      element.appendChild(sigButton);
+                    } else {
+                      // First two signatures - readonly for provider
+                      const sigDisplay = document.createElement('div');
+                      sigDisplay.style.position = 'absolute';
+                      sigDisplay.style.left = '0';
+                      sigDisplay.style.top = '0';
+                      sigDisplay.style.width = '100%';
+                      sigDisplay.style.height = '100%';
+                      sigDisplay.style.backgroundColor = currentSignature ? 'rgba(76, 175, 80, 0.05)' : 'rgba(128, 128, 128, 0.1)';
+                      sigDisplay.style.border = currentSignature ? '2px solid #4CAF50' : '2px solid #999';
+                      sigDisplay.style.display = 'flex';
+                      sigDisplay.style.alignItems = 'center';
+                      sigDisplay.style.justifyContent = 'center';
+                      sigDisplay.style.fontSize = '11px';
+                      sigDisplay.style.color = currentSignature ? '#4CAF50' : '#666';
+                      sigDisplay.style.fontWeight = 'bold';
+                      sigDisplay.style.pointerEvents = 'none';
+                      
+                      if (currentSignature && typeof currentSignature === 'string' && currentSignature.startsWith('data:image/')) {
+                        const sigImg = document.createElement('img');
+                        sigImg.src = currentSignature;
+                        sigImg.style.maxWidth = '100%';
+                        sigImg.style.maxHeight = '100%';
+                        sigImg.style.objectFit = 'contain';
+                        sigDisplay.appendChild(sigImg);
+                      } else {
+                        sigDisplay.textContent = currentSignature ? '✓ Signed' : 'Readonly';
+                      }
+                      
+                      element.appendChild(sigDisplay);
+                    }
+                  } else {
+                    // For non-providers, create a hidden placeholder
+                    const sigPlaceholder = document.createElement('div');
+                    sigPlaceholder.style.position = 'absolute';
+                    sigPlaceholder.style.left = '0';
+                    sigPlaceholder.style.top = '0';
+                    sigPlaceholder.style.width = '100%';
+                    sigPlaceholder.style.height = '100%';
+                    sigPlaceholder.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+                    sigPlaceholder.style.border = '1px dashed #ccc';
+                    sigPlaceholder.style.display = 'flex';
+                    sigPlaceholder.style.alignItems = 'center';
+                    sigPlaceholder.style.justifyContent = 'center';
+                    sigPlaceholder.style.fontSize = '10px';
+                    sigPlaceholder.style.color = '#999';
+                    sigPlaceholder.style.pointerEvents = 'none';
+                    sigPlaceholder.textContent = 'Signature field (hidden)';
+                    element.appendChild(sigPlaceholder);
+                  }
+                  
                   annotationLayer.appendChild(element);
                   continue;
                 }
@@ -488,7 +672,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     const existingValue = (workflowContext?.isWorkflowContext && allWorkflowFormData && annotation.fieldName) ? 
                       (allWorkflowFormData[annotation.fieldName] || annotation.fieldValue || '') : 
                       (annotation.fieldValue || '');
+                    
+                    
                     (inputElement as HTMLInputElement | HTMLTextAreaElement).value = String(existingValue);
+                    
                     (inputElement as HTMLInputElement | HTMLTextAreaElement).name = annotation.fieldName || '';
                     if (annotation.maxLen) {
                       (inputElement as HTMLInputElement | HTMLTextAreaElement).maxLength = annotation.maxLen;
@@ -684,12 +871,29 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     onFormDataChange,
     setError,
     allWorkflowFormData,
-    workflowContext
+    workflowContext,
+    signatures,
+    isProvider,
+    handleSignatureFieldClick
   ]);
+
+  // Expose renderPage function to window for signature re-rendering
+  React.useEffect(() => {
+    (window as any).pdfRenderFunction = renderPage;
+    return () => {
+      delete (window as any).pdfRenderFunction;
+    };
+  }, [renderPage]);
 
   // Render current page with debouncing for zoom changes
   useEffect(() => {
     if (!pdfDocument || currentPage <= 0) return;
+    
+    // Wait for workflow data to load before rendering in workflow context
+    if (workflowContext?.isWorkflowContext && !workflowDataLoaded) {
+      console.log('🔍 Waiting for workflow data to load before rendering...');
+      return;
+    }
     
     // Clear any pending render
     if (renderTimeoutRef.current) {
@@ -709,7 +913,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         clearTimeout(renderTimeoutRef.current);
       }
     };
-  }, [pdfDocument, currentPage, zoomLevel, enableFormInteraction]);
+  }, [pdfDocument, currentPage, zoomLevel, enableFormInteraction, allWorkflowFormData, workflowContext?.isWorkflowContext, workflowDataLoaded]);
 
   // Mouse wheel zoom handling
   const handleWheel = useCallback((event: React.WheelEvent) => {
@@ -786,29 +990,41 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
 
   // Load existing workflow form data only when in workflow context
   React.useEffect(() => {
+    // Reset loaded flag when workflow context changes
+    setWorkflowDataLoaded(false);
+    
     if (workflowContext?.isWorkflowContext && workflowContext?.workflowData?.workflow?.id) {
       const loadWorkflowFormData = async () => {
         try {
+          console.log('🔍 Loading workflow form data for:', workflowContext.workflowData.workflow.id);
           const response = await fetch(`/api/workflows/${workflowContext.workflowData.workflow.id}/form-data`);
           if (response.ok) {
             const result = await response.json();
+            console.log('🔍 Form data response:', result);
             if (result.success && result.formDataHistory) {
               // Merge all form data from previous submissions
               const mergedFormData: Record<string, any> = {};
               result.formDataHistory.forEach((submission: any) => {
                 Object.assign(mergedFormData, submission.form_data);
               });
+              console.log('🔍 Merged form data keys:', Object.keys(mergedFormData));
+              console.log('🔍 Sample merged data:', mergedFormData);
               setAllWorkflowFormData(mergedFormData);
+              setWorkflowDataLoaded(true);
             } else {
+              console.log('🔍 No form data history found');
               setAllWorkflowFormData({});
+              setWorkflowDataLoaded(true);
             }
           } else {
             console.warn('Failed to fetch workflow form data:', response.status);
             setAllWorkflowFormData({});
+            setWorkflowDataLoaded(true);
           }
         } catch (error) {
           console.warn('Failed to load workflow form data:', error);
           setAllWorkflowFormData({});
+          setWorkflowDataLoaded(true);
         }
       };
       
@@ -817,8 +1033,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       // Clear form data when not in workflow context
       setAllWorkflowFormData({});
       setCurrentFormData({});
+      setWorkflowDataLoaded(true); // No workflow data to load, so consider it "loaded"
     }
   }, [workflowContext?.isWorkflowContext, workflowContext?.workflowData?.workflow?.id]);
+
 
   // Expose form data to parent components
   React.useEffect(() => {
@@ -1024,6 +1242,14 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           )}
         </Box>
       </Box>
+      
+      {/* Signature Dialog */}
+      <SignatureDialog
+        open={signatureDialogOpen}
+        onClose={handleCloseSignatureDialog}
+        onSave={handleSaveSignature}
+        recipientName={workflowContext?.currentRecipientName || 'Provider'}
+      />
     </Box>
   );
 };

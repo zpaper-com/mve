@@ -16,6 +16,40 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import PDFViewer from './PDFViewer';
 // import { DEFAULT_PDF_CONFIG } from '../../types/pdf';
 
+// Import recipient type configuration for title display
+const recipientTypeConfig = {
+  PRESCRIBER: {
+    label: 'Provider',
+    color: '#2e7d32',
+    bgcolor: '#e8f5e8',
+  },
+  PATIENT: {
+    label: 'Patient',
+    color: '#1976d2',
+    bgcolor: '#e3f2fd',
+  },
+  PHARMACY: {
+    label: 'Pharmacy',
+    color: '#ed6c02',
+    bgcolor: '#fff3e0',
+  },
+  INSURANCE: {
+    label: 'Insurance',
+    color: '#9c27b0',
+    bgcolor: '#f3e5f5',
+  },
+  MEDSTAFF: {
+    label: 'Med-Staff',
+    color: '#d32f2f',
+    bgcolor: '#ffebee',
+  },
+  CUSTOM: {
+    label: 'Other',
+    color: '#616161',
+    bgcolor: '#f5f5f5',
+  },
+} as const;
+
 // Fallback config to avoid errors
 const DEFAULT_PDF_CONFIG = {
   enableScripting: false,
@@ -65,6 +99,8 @@ const PDFViewerDemo: React.FC = () => {
   const [currentRecipientIndex, setCurrentRecipientIndex] = useState<number | null>(null);
   const [isLastRecipient, setIsLastRecipient] = useState(false);
   const [currentRecipientToken, setCurrentRecipientToken] = useState<string | null>(null);
+  const [currentRecipientType, setCurrentRecipientType] = useState<string | null>(null);
+  const [currentRecipientName, setCurrentRecipientName] = useState<string | null>(null);
 
   // Fetch recipient data if token is present
   useEffect(() => {
@@ -74,6 +110,8 @@ const PDFViewerDemo: React.FC = () => {
     } else {
       setIsWorkflowContext(false);
       setWorkflowData(null);
+      // Set title for guest users
+      document.title = 'MVE Sprkz - Guest';
     }
   }, [uuid]);
 
@@ -82,6 +120,8 @@ const PDFViewerDemo: React.FC = () => {
       const response = await fetch(`/api/recipients/${token}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('🔍 Recipient API response:', data);
+        console.log('🔍 Recipient type:', data.recipient?.recipientType);
         
         // Convert recipient data to workflow data format for compatibility
         const workflowData = {
@@ -98,6 +138,15 @@ const PDFViewerDemo: React.FC = () => {
         setCurrentRecipientIndex(data.recipient.position.current);
         setIsLastRecipient(data.recipient.position.isLast);
         setCurrentRecipientToken(data.recipient.uniqueToken);
+        setCurrentRecipientType(data.recipient.recipientType);
+        setCurrentRecipientName(data.recipient.name);
+        
+        console.log('🔍 Set recipient type to:', data.recipient.recipientType);
+        console.log('🔍 Set recipient name to:', data.recipient.name);
+        
+        // Set title for workflow users
+        const recipientLabel = recipientTypeConfig[data.recipient.recipientType as keyof typeof recipientTypeConfig]?.label || data.recipient.recipientType;
+        document.title = `MVE Sprkz - ${data.recipient.name} (${recipientLabel})`;
         
       } else {
         console.error('Failed to fetch recipient data:', response.statusText);
@@ -178,6 +227,8 @@ const PDFViewerDemo: React.FC = () => {
               currentRecipientIndex,
               isLastRecipient,
               currentRecipientToken,
+              currentRecipientType,
+              currentRecipientName,
             }}
           />
         </Card>

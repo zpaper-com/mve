@@ -101,13 +101,20 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
     
     try {
       const token = workflowContext.currentRecipientToken;
+      const formData = getCurrentFormData ? getCurrentFormData() : {};
+      
+      console.log('📤 Submitting form data:', formData);
+      console.log('📤 Signature fields in submission:', Object.keys(formData).filter(key => 
+        key.toLowerCase().includes('signature') || key.toLowerCase().includes('prescriber')
+      ));
+      
       const response = await fetch(`/api/recipients/${token}/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          formData: getCurrentFormData ? getCurrentFormData() : {}
+          formData: formData
         }),
       });
       
@@ -243,23 +250,25 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
 
           <Box sx={{ flexGrow: 1 }} />
 
-          <Tooltip title="Attach files to this document">
-            <Button
-              variant="outlined"
-              startIcon={<AttachFile />}
-              onClick={() => setAttachmentOpen(true)}
-              sx={{ 
-                color: 'inherit', 
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                '&:hover': {
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                },
-              }}
-            >
-              Attach
-            </Button>
-          </Tooltip>
+          {workflowContext?.isWorkflowContext && (
+            <Tooltip title="Attach files to this document">
+              <Button
+                variant="outlined"
+                startIcon={<AttachFile />}
+                onClick={() => setAttachmentOpen(true)}
+                sx={{ 
+                  color: 'inherit', 
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  '&:hover': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  },
+                }}
+              >
+                Attach
+              </Button>
+            </Tooltip>
+          )}
 
           <Tooltip title={
             workflowContext?.isWorkflowContext 
@@ -301,16 +310,18 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
         initialFormData={getCurrentFormData ? getCurrentFormData() : {}}
       />
       
-      <AttachmentDialog 
-        open={attachmentOpen} 
-        onClose={() => setAttachmentOpen(false)} 
-        workflowId={workflowContext?.workflowData?.workflow?.id}
-        recipientId={workflowContext?.workflowData?.recipient?.id}
-        uploadedBy={workflowContext?.workflowData?.recipient?.name || 'user'}
-        onSuccess={(attachment) => {
-          console.log('✅ File uploaded successfully:', attachment);
-        }}
-      />
+      {workflowContext?.isWorkflowContext && (
+        <AttachmentDialog 
+          open={attachmentOpen} 
+          onClose={() => setAttachmentOpen(false)} 
+          workflowId={workflowContext?.workflowData?.workflow?.id}
+          recipientId={workflowContext?.workflowData?.recipient?.id}
+          uploadedBy={workflowContext?.workflowData?.recipient?.name || 'user'}
+          onSuccess={(attachment) => {
+            console.log('✅ File uploaded successfully:', attachment);
+          }}
+        />
+      )}
 
       {/* Submission Dialog */}
       <Dialog

@@ -1,0 +1,17 @@
+{
+  "name": "MVE PDF Workflow System",
+  "short_name": "MVE PDF",
+  "description": "Sequential PDF form completion workflow system",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/Sprkz.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
