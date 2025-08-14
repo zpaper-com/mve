@@ -1131,7 +1131,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <PDFToolbar 
         workflowContext={workflowContext} 
-        getCurrentFormData={() => currentFormData}
+        getCurrentFormData={() => ({
+          ...currentFormData,
+          ...signatures  // Include signatures in the form data
+        })}
       />
       
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
