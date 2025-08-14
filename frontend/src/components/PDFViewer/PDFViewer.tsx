@@ -910,6 +910,14 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     };
   }, [renderPage]);
 
+  // Re-render when recipient type changes (to update signature fields)
+  React.useEffect(() => {
+    if (workflowContext?.currentRecipientType && pdfDocument) {
+      console.log('🔄 Recipient type changed to:', workflowContext.currentRecipientType, '- re-rendering page');
+      renderPage();
+    }
+  }, [workflowContext?.currentRecipientType, pdfDocument, renderPage]);
+
   // Render current page with debouncing for zoom changes
   useEffect(() => {
     if (!pdfDocument || currentPage <= 0) return;
