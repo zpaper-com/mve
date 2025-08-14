@@ -172,17 +172,19 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
 
   // Helper function to check if current user is a provider
   const isProvider = useCallback(() => {
-    const result = workflowContext?.currentRecipientType === 'PRESCRIBER';
-    console.log('🏥 isProvider check - currentRecipientType:', workflowContext?.currentRecipientType, 'result:', result);
+    const recipientType = workflowContext?.currentRecipientType;
+    const result = recipientType === 'PRESCRIBER' || recipientType === 'prescriber';
+    console.log('🏥 isProvider check - currentRecipientType:', recipientType, 'result:', result, 'workflowContext:', workflowContext);
     return result;
-  }, [workflowContext?.currentRecipientType]);
+  }, [workflowContext?.currentRecipientType, workflowContext]);
 
-  // Helper function to check if current user is a patient
+  // Helper function to check if current user is a patient  
   const isPatient = useCallback(() => {
-    const result = workflowContext?.currentRecipientType === 'PATIENT';
-    console.log('🏥 isPatient check - currentRecipientType:', workflowContext?.currentRecipientType, 'result:', result);
+    const recipientType = workflowContext?.currentRecipientType;
+    const result = recipientType === 'PATIENT' || recipientType === 'patient';
+    console.log('🏥 isPatient check - currentRecipientType:', recipientType, 'result:', result, 'workflowContext:', workflowContext);
     return result;
-  }, [workflowContext?.currentRecipientType]);
+  }, [workflowContext?.currentRecipientType, workflowContext]);
 
   // Handle signature field click
   const handleSignatureFieldClick = useCallback((fieldName: string) => {
