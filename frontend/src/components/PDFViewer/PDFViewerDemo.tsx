@@ -154,6 +154,14 @@ const PDFViewerDemo: React.FC = () => {
         setCurrentRecipientType(data.recipient.recipientType);
         setCurrentRecipientName(data.recipient.name);
         
+        // Load initial form data if present
+        if (data.recipient.formData) {
+          console.log('📋 PDFViewerDemo - Loading initial form data from recipient:', data.recipient.formData);
+          setFormData(data.recipient.formData);
+        } else {
+          console.log('📋 PDFViewerDemo - No initial form data found for recipient');
+        }
+        
         console.log('🔍 Set recipient type to:', data.recipient.recipientType);
         console.log('🔍 Set recipient name to:', data.recipient.name);
         
@@ -205,17 +213,18 @@ const PDFViewerDemo: React.FC = () => {
         ...prevData,
         ...data
       };
-      console.log('Form data updated:', data);
-      console.log('Current form data after update:', newData);
+      console.log('📝 PDFViewerDemo - Form data updated:', data);
+      console.log('📝 PDFViewerDemo - Current form data after update:', newData);
       return newData;
     });
   }, []);
 
-  // Function to get current form data from store at submit time
+  // Function to get current form data at submit time
   const getCurrentFormData = useCallback(() => {
-    console.log('📋 Getting current form data from store:', storeFormData);
-    return storeFormData;
-  }, [storeFormData]);
+    console.log('📤 PDFViewerDemo - Getting current form data:', formData);
+    console.log('📤 PDFViewerDemo - Form data keys:', Object.keys(formData));
+    return formData;
+  }, [formData]);
 
   // Custom PDF configuration - context-aware signature field hiding
   const customConfig = {
@@ -247,11 +256,12 @@ const PDFViewerDemo: React.FC = () => {
             onError={handlePDFError}
             onPageChange={handlePageChange}
             onZoomChange={handleZoomChange}
-            onFormDataChange={undefined}
+            onFormDataChange={handleFormDataChange}
             config={customConfig}
             enableVirtualScrolling={enableVirtualScrolling}
             enableFormInteraction={enableFormInteraction}
             getCurrentFormData={getCurrentFormData}
+            initialFormData={formData} // Pass the form data loaded from recipient
             workflowContext={{
               isWorkflowContext,
               workflowData,

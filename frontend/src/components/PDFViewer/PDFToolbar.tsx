@@ -420,7 +420,12 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
       <SendToDialog 
         open={sendToOpen} 
         onClose={() => setSendToOpen(false)}
-        initialFormData={getCurrentFormData ? getCurrentFormData() : {}}
+        initialFormData={(() => {
+          const formData = getCurrentFormData ? getCurrentFormData() : {};
+          console.log('🎯 PDFToolbar - Passing form data to SendToDialog:', formData);
+          console.log('🎯 PDFToolbar - Number of fields:', Object.keys(formData).length);
+          return formData;
+        })()}
       />
       
       {workflowContext?.isWorkflowContext && (

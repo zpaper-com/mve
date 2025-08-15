@@ -52,6 +52,7 @@ interface PDFViewerProps {
   enableFormInteraction?: boolean;
   workflowContext?: WorkflowContext;
   getCurrentFormData?: () => Record<string, any>;
+  initialFormData?: Record<string, any>; // Add prop for initial form data
 }
 
 interface CachedPage {
@@ -76,7 +77,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   enableVirtualScrolling = true,
   enableFormInteraction = true,
   workflowContext,
-  getCurrentFormData
+  getCurrentFormData,
+  initialFormData = {}
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -959,14 +961,19 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                     
                     // Update local form data state
                     if (fieldName) {
-                      setCurrentFormData(prev => ({
-                        ...prev,
-                        [fieldName]: value
-                      }));
-                    }
-                    
-                    if (fieldName && onFormDataChange) {
-                      onFormDataChange({ [fieldName]: value });
+                      setCurrentFormData(prev => {
+                        const newData = { ...prev, [fieldName]: value };
+                        console.log('📝 PDFViewer - Form field changed:', fieldName, '=', value);
+                        console.log('📝 PDFViewer - Updated local form data:', newData);
+                        
+                        // Call parent callback if provided
+                        if (onFormDataChange) {
+                          console.log('📤 PDFViewer - Calling onFormDataChange with:', { [fieldName]: value });
+                          onFormDataChange({ [fieldName]: value });
+                        }
+                        
+                        return newData;
+                      });
                     }
                   });
                   
@@ -1197,6 +1204,16 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       const loadWorkflowFormData = async () => {
         try {
           console.log('🔍 Loading workflow form data for:', workflowContext.workflowData.workflow.id);
+          
+          // First, check if we have initial form data provided directly
+          if (initialFormData && Object.keys(initialFormData).length > 0) {
+            console.log('🔍 Using provided initial form data:', initialFormData);
+            setAllWorkflowFormData(initialFormData);
+            setWorkflowDataLoaded(true);
+            return;
+          }
+          
+          // Otherwise, load from API
           const response = await fetch(`/api/workflows/${workflowContext.workflowData.workflow.id}/form-data`);
           if (response.ok) {
             const result = await response.json();
@@ -1235,7 +1252,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       setCurrentFormData({});
       setWorkflowDataLoaded(true); // No workflow data to load, so consider it "loaded"
     }
-  }, [workflowContext?.isWorkflowContext, workflowContext?.workflowData?.workflow?.id]);
+  }, [workflowContext?.isWorkflowContext, workflowContext?.workflowData?.workflow?.id, initialFormData]);
 
 
   // Expose form data to parent components

@@ -851,6 +851,19 @@ app.get('/api/recipients/:token', async (req, res) => {
 
     console.log(`🔑 Recipient lookup: ${recipient.recipient_name} (${currentIndex + 1}/${sortedRecipients.length})`);
 
+    // Parse form_data if it exists
+    let formData = null;
+    if (recipient.form_data) {
+      try {
+        formData = typeof recipient.form_data === 'string' ? JSON.parse(recipient.form_data) : recipient.form_data;
+        console.log(`📋 Including form data for ${recipient.recipient_name}:`, Object.keys(formData).length, 'fields');
+      } catch (e) {
+        console.warn('⚠️ Failed to parse form data for recipient:', e);
+      }
+    } else {
+      console.log(`📋 No form data found for ${recipient.recipient_name}`);
+    }
+
     res.json({
       success: true,
       recipient: {
@@ -862,6 +875,7 @@ app.get('/api/recipients/:token', async (req, res) => {
         orderIndex: recipient.order_index,
         status: recipient.status,
         uniqueToken: recipient.unique_token,
+        formData: formData, // Include form data in the response
         workflow: {
           id: recipient.workflow_id,
           uuid: recipient.workflow_uuid,

@@ -259,6 +259,8 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
     
     try {
       logger.info('Submitting workflow with data:', data);
+      console.log('🚀 SendToDialog - Initial form data received:', initialFormData);
+      console.log('🚀 SendToDialog - Number of fields:', Object.keys(initialFormData).length);
       logger.info('Initial form data:', Object.keys(initialFormData).length > 0 ? initialFormData : 'No form data');
       
       // Step 1: Create workflow in database first
