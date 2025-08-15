@@ -169,7 +169,13 @@ class Database {
         // Add submitted_at column to recipients table if it doesn't exist
         `ALTER TABLE recipients ADD COLUMN submitted_at DATETIME`,
         // Add completed_pdf_path column to workflows table if it doesn't exist
-        `ALTER TABLE workflows ADD COLUMN completed_pdf_path TEXT`
+        `ALTER TABLE workflows ADD COLUMN completed_pdf_path TEXT`,
+        // Add send_completed_pdf column to recipients table if it doesn't exist
+        `ALTER TABLE recipients ADD COLUMN send_completed_pdf BOOLEAN DEFAULT 0`,
+        // Add send_audit_doc column to recipients table if it doesn't exist
+        `ALTER TABLE recipients ADD COLUMN send_audit_doc BOOLEAN DEFAULT 0`,
+        // Add audit_doc_path column to workflows table if it doesn't exist
+        `ALTER TABLE workflows ADD COLUMN audit_doc_path TEXT`
       ];
       
       let index = 0;
@@ -274,13 +280,21 @@ class Database {
   // Recipient methods
   async addRecipient(workflowId, recipientData) {
     return new Promise((resolve, reject) => {
-      const { recipientName, email, mobile, recipientType = 'PRESCRIBER', orderIndex = 0 } = recipientData;
+      const { 
+        recipientName, 
+        email, 
+        mobile, 
+        recipientType = 'PRESCRIBER', 
+        orderIndex = 0,
+        sendCompletedPdf = false,
+        sendAuditDoc = false
+      } = recipientData;
       const uniqueToken = this.generateRecipientToken();
       
       this.db.run(
-        `INSERT INTO recipients (workflow_id, recipient_name, email, mobile, recipient_type, order_index, unique_token) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [workflowId, recipientName, email, mobile, recipientType, orderIndex, uniqueToken],
+        `INSERT INTO recipients (workflow_id, recipient_name, email, mobile, recipient_type, order_index, unique_token, send_completed_pdf, send_audit_doc) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [workflowId, recipientName, email, mobile, recipientType, orderIndex, uniqueToken, sendCompletedPdf ? 1 : 0, sendAuditDoc ? 1 : 0],
         function(err) {
           if (err) {
             reject(err);
@@ -692,6 +706,22 @@ MVE PDF Workflow System`,
       this.db.run(
         `UPDATE workflows SET completed_pdf_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         [pdfPath, workflowId],
+        function(err) {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(this.changes);
+        }
+      );
+    });
+  }
+
+  async updateWorkflowAuditDoc(workflowId, auditDocPath) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        `UPDATE workflows SET audit_doc_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [auditDocPath, workflowId],
         function(err) {
           if (err) {
             reject(err);

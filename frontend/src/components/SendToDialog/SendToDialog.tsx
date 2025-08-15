@@ -43,6 +43,8 @@ const workflowSchema = z.object({
     npi: z.string().optional(),
     officePhone: z.string().optional(),
     fax: z.string().optional(),
+    sendCompletedPdf: z.boolean().optional().default(false),
+    sendAuditDoc: z.boolean().optional().default(false),
   })).min(1, 'At least one recipient is required').max(10, 'Maximum 10 recipients allowed'),
 });
 
@@ -273,6 +275,8 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
             email: recipient.email,
             mobile: recipient.mobile || undefined,
             npi: recipient.npi || undefined,
+            sendCompletedPdf: recipient.sendCompletedPdf || false,
+            sendAuditDoc: recipient.sendAuditDoc || false,
           })),
           documentUrl,
           metadata: {

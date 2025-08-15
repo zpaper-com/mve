@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('./database.cjs');
 const PDFFormFillerService = require('./services/pdfFormFiller.cjs');
+const AuditDocumentService = require('./services/auditDocumentService.cjs');
 require('dotenv').config({ path: '../.env' });
 
 const app = express();
@@ -73,6 +74,13 @@ if (!fs.existsSync(completedFormsDir)) {
 }
 app.use('/completed_forms', express.static(completedFormsDir));
 
+// Create and serve audit documents directory
+const auditDocumentsDir = path.join(__dirname, 'audit_documents');
+if (!fs.existsSync(auditDocumentsDir)) {
+  fs.mkdirSync(auditDocumentsDir, { recursive: true });
+}
+app.use('/audit_documents', express.static(auditDocumentsDir));
+
 // Initialize Twilio client
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -84,6 +92,9 @@ const db = new Database();
 
 // Initialize PDF form filler service
 const pdfFiller = new PDFFormFillerService();
+
+// Initialize audit document service
+const auditService = new AuditDocumentService();
 
 // Initialize database on startup
 async function initializeDatabase() {
@@ -142,6 +153,153 @@ async function getWorkflowWithFormData(workflowId) {
     return workflow;
   } catch (error) {
     console.error('Error getting workflow with form data:', error);
+    return null;
+  }
+}
+
+// Send completed documents to recipients who opted in
+async function sendCompletedDocumentsToRecipients(workflowId) {
+  try {
+    // Get all recipients for this workflow
+    const recipients = await db.getRecipientsByWorkflow(workflowId);
+    
+    // Get workflow details
+    const workflow = await new Promise((resolve, reject) => {
+      db.db.get(`SELECT * FROM workflows WHERE id = ?`, [workflowId], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+    
+    if (!workflow || !workflow.completed_pdf_path) {
+      console.warn('⚠️ No completed PDF available for distribution');
+      return;
+    }
+    
+    // Filter recipients who opted in for documents
+    const recipientsForPdf = recipients.filter(r => r.send_completed_pdf);
+    const recipientsForAudit = recipients.filter(r => r.send_audit_doc);
+    
+    console.log(`📬 Sending completed PDF to ${recipientsForPdf.length} recipients`);
+    console.log(`📋 Sending audit document to ${recipientsForAudit.length} recipients`);
+    
+    const baseUrl = 'https://mvepdf.sparks.zpaper.com';
+    const pdfUrl = `${baseUrl}${workflow.completed_pdf_path}`;
+    
+    // Send completed PDF emails
+    for (const recipient of recipientsForPdf) {
+      if (recipient.email) {
+        try {
+          const emailResponse = await fetch('http://localhost:3001/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: recipient.email,
+              subject: 'Completed PDF Document - MVE Workflow',
+              body: `Dear ${recipient.recipient_name},\n\nThe workflow you participated in has been completed. You can download the completed PDF document using the link below:\n\n${pdfUrl}\n\nThank you for your participation.`,
+              recipientName: recipient.recipient_name,
+              workflowUrl: pdfUrl,
+              workflowId: workflowId
+            })
+          });
+          
+          if (emailResponse.ok) {
+            console.log(`✅ Sent completed PDF to ${recipient.recipient_name} (${recipient.email})`);
+          } else {
+            console.warn(`⚠️ Failed to send completed PDF to ${recipient.recipient_name}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error sending completed PDF to ${recipient.recipient_name}:`, error);
+        }
+      }
+    }
+    
+    // Send audit document PDF
+    const auditUrl = workflow.audit_doc_path ? `${baseUrl}${workflow.audit_doc_path}` : null;
+    
+    for (const recipient of recipientsForAudit) {
+      if (recipient.email) {
+        try {
+          const auditBody = auditUrl ? 
+            `Dear ${recipient.recipient_name},\n\nThe workflow you participated in has been completed. You can download the comprehensive audit document using the link below:\n\n${auditUrl}\n\nThis audit document contains detailed information about all participants, form data, and the complete workflow history.\n\nThank you for your participation.` :
+            `Dear ${recipient.recipient_name},\n\nThe workflow you participated in has been completed. Unfortunately, the audit document is currently being generated and will be available shortly.\n\nThank you for your participation.`;
+            
+          const emailResponse = await fetch('http://localhost:3001/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: recipient.email,
+              subject: 'Workflow Audit Document - MVE Workflow',
+              body: auditBody,
+              recipientName: recipient.recipient_name,
+              workflowUrl: auditUrl || pdfUrl,
+              workflowId: workflowId
+            })
+          });
+          
+          if (emailResponse.ok) {
+            console.log(`✅ Sent audit document to ${recipient.recipient_name} (${recipient.email})`);
+          } else {
+            console.warn(`⚠️ Failed to send audit document to ${recipient.recipient_name}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error sending audit document to ${recipient.recipient_name}:`, error);
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ Error sending completed documents:', error);
+  }
+}
+
+// Generate audit document for workflow
+async function generateAuditDocument(workflowId) {
+  try {
+    console.log(`📋 Generating audit document for workflow: ${workflowId}`);
+    
+    // Get workflow data with all form submissions
+    const workflowData = await getWorkflowWithFormData(workflowId);
+    
+    if (!workflowData) {
+      console.error(`❌ Workflow ${workflowId} not found for audit generation`);
+      return null;
+    }
+    
+    console.log(`📊 Found workflow data with ${workflowData.formDataHistory ? workflowData.formDataHistory.length : 0} form submissions for audit`);
+    
+    // Get additional workflow details including recipients and attachments
+    const recipients = await db.getRecipientsByWorkflow(workflowId);
+    const attachments = await db.getAttachmentsByWorkflow(workflowId);
+    
+    // Enhance workflow data for audit
+    const enhancedWorkflowData = {
+      ...workflowData,
+      attachments: attachments,
+      formDataHistory: recipients.map(r => ({
+        recipient_name: r.recipient_name,
+        recipient_type: r.recipient_type,
+        status: r.status,
+        submitted_at: r.submitted_at,
+        form_data: r.form_data ? (typeof r.form_data === 'string' ? JSON.parse(r.form_data) : r.form_data) : null
+      }))
+    };
+    
+    // Generate the audit document
+    const auditDocPath = await auditService.generateAuditDocument(enhancedWorkflowData, workflowId);
+    
+    // Get relative path for serving
+    const relativePath = auditService.getRelativePath(auditDocPath);
+    
+    // Update database with audit document path
+    await db.updateWorkflowAuditDoc(workflowId, relativePath);
+    
+    console.log(`✅ Audit document generated and saved: ${relativePath}`);
+    
+    return auditDocPath;
+  } catch (error) {
+    console.error(`❌ Error generating audit document for workflow ${workflowId}:`, error);
+    console.error('Stack trace:', error.stack);
     return null;
   }
 }
@@ -486,7 +644,9 @@ app.post('/api/workflows', async (req, res) => {
         email: recipients[i].email,
         mobile: recipients[i].mobile,
         recipientType: recipients[i].recipientType || 'PRESCRIBER',
-        orderIndex: i
+        orderIndex: i,
+        sendCompletedPdf: recipients[i].sendCompletedPdf || false,
+        sendAuditDoc: recipients[i].sendAuditDoc || false
       };
       
       const savedRecipient = await db.addRecipient(workflow.id, recipientData);
@@ -876,9 +1036,15 @@ app.post('/api/recipients/:token/submit', async (req, res) => {
         
         // Generate completed PDF form
         console.log(`🔧 Starting PDF form generation for completed workflow ${recipient.workflow_id}`);
-        generateCompletedPDF(recipient.workflow_id).catch(error => {
-          console.error(`❌ Failed to generate completed PDF for workflow ${recipient.workflow_id}:`, error);
-        });
+        await generateCompletedPDF(recipient.workflow_id);
+        
+        // Generate audit document
+        console.log(`📋 Starting audit document generation for completed workflow ${recipient.workflow_id}`);
+        await generateAuditDocument(recipient.workflow_id);
+        
+        // Send completed PDF and audit document to recipients who opted in
+        console.log(`📧 Checking for recipients who want completed documents...`);
+        await sendCompletedDocumentsToRecipients(recipient.workflow_id);
         
       } catch (statusError) {
         console.warn('⚠️ Failed to update workflow status to completed:', statusError);
@@ -1113,6 +1279,51 @@ app.post('/api/admin/regenerate-pdfs', async (req, res) => {
     console.error('❌ Error regenerating PDFs:', error);
     res.status(500).json({
       error: 'Failed to regenerate PDFs',
+      details: error.message
+    });
+  }
+});
+
+// Admin: Generate audit documents for all completed workflows
+app.post('/api/admin/generate-audit-docs', async (req, res) => {
+  try {
+    // Get all completed workflows
+    const completedWorkflows = await new Promise((resolve, reject) => {
+      db.db.all(
+        `SELECT * FROM workflows WHERE status = 'completed'`,
+        [],
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows || []);
+        }
+      );
+    });
+    
+    console.log(`📋 Found ${completedWorkflows.length} completed workflows to generate audit documents for`);
+    
+    const results = [];
+    for (const workflow of completedWorkflows) {
+      console.log(`📄 Generating audit document for workflow: ${workflow.id}`);
+      try {
+        await generateAuditDocument(workflow.id);
+        results.push({ id: workflow.id, uuid: workflow.uuid, status: 'success' });
+      } catch (error) {
+        console.error(`❌ Failed to generate audit document for workflow ${workflow.id}:`, error);
+        results.push({ id: workflow.id, uuid: workflow.uuid, status: 'failed', error: error.message });
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Processed ${completedWorkflows.length} workflows`,
+      results: results,
+      generated: results.filter(r => r.status === 'success').length,
+      failed: results.filter(r => r.status === 'failed').length
+    });
+  } catch (error) {
+    console.error('❌ Error generating audit documents:', error);
+    res.status(500).json({
+      error: 'Failed to generate audit documents',
       details: error.message
     });
   }

@@ -53,12 +53,13 @@ const SplashDialog: React.FC<SplashDialogProps> = ({ open, onClose }) => {
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth="md"
+      maxWidth="sm"
       fullWidth
       PaperProps={{
         sx: {
           borderRadius: 2,
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          maxHeight: '90vh',
         },
       }}
     >
@@ -89,102 +90,86 @@ const SplashDialog: React.FC<SplashDialogProps> = ({ open, onClose }) => {
       </DialogTitle>
 
       <DialogContent sx={{ pt: 2, bgcolor: 'white', mt: 0 }}>
-        <Paper elevation={0} sx={{ p: 3, bgcolor: '#f5f5f5', borderRadius: 2, mb: 3 }}>
-          <Typography variant="h6" gutterBottom sx={{ color: '#333', fontWeight: 600 }}>
-            How It Works
-          </Typography>
-          <Typography variant="body1" paragraph sx={{ color: '#666' }}>
-            Sprkz enables seamless multi-party PDF form completion through intelligent workflow orchestration. 
-            Perfect for documents requiring input from multiple stakeholders in a specific sequence.
+        <Paper elevation={0} sx={{ p: 2.5, bgcolor: '#f5f5f5', borderRadius: 2, mb: 2 }}>
+          <Typography variant="body1" sx={{ color: '#666' }}>
+            Sprkz enables seamless multi-party PDF form completion through intelligent workflow orchestration.
           </Typography>
         </Paper>
 
-        <Typography variant="h6" gutterBottom sx={{ mt: 3, mb: 2, fontWeight: 600 }}>
-          Getting Started
+        <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1.5, fontWeight: 600, fontSize: '1.1rem' }}>
+          Quick Start Guide
         </Typography>
 
-        <List>
+        <List dense>
           <ListItem>
-            <ListItemIcon>
-              <Edit color="primary" />
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <Edit color="primary" fontSize="small" />
             </ListItemIcon>
             <ListItemText
               primary="1. Pre-fill Your Fields"
-              secondary="Fill in any form fields you're responsible for. You can complete your portion before sending to others."
+              primaryTypographyProps={{ fontSize: '0.95rem', fontWeight: 500 }}
             />
           </ListItem>
 
           <ListItem>
-            <ListItemIcon>
-              <Send color="primary" />
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <Send color="primary" fontSize="small" />
             </ListItemIcon>
             <ListItemText
-              primary="2. Click 'Send To' When Ready"
-              secondary="Once you've filled your fields, click the 'Send To' button in the toolbar to set up your workflow."
+              primary="2. Click 'Send To' to Set Up Workflow"
+              primaryTypographyProps={{ fontSize: '0.95rem', fontWeight: 500 }}
             />
           </ListItem>
 
           <ListItem>
-            <ListItemIcon>
-              <Group color="primary" />
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <Group color="primary" fontSize="small" />
             </ListItemIcon>
             <ListItemText
-              primary="3. Add Recipients"
-              secondary="Add up to 10 recipients who need to complete portions of the form. Each person will receive the form in sequence."
+              primary="3. Add Recipients (Sequential Notifications)"
+              primaryTypographyProps={{ fontSize: '0.95rem', fontWeight: 500 }}
             />
           </ListItem>
 
           <ListItem>
-            <ListItemIcon>
-              <Notifications color="primary" />
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <CheckCircle color="primary" fontSize="small" />
             </ListItemIcon>
             <ListItemText
-              primary="4. Sequential Notifications"
-              secondary="Recipients are notified one at a time via email/SMS. Each person completes their section before the next is notified."
-            />
-          </ListItem>
-
-          <ListItem>
-            <ListItemIcon>
-              <CheckCircle color="primary" />
-            </ListItemIcon>
-            <ListItemText
-              primary="5. Automatic Completion"
-              secondary="When all recipients have completed their portions, the finalized PDF is automatically generated and available for download."
+              primary="4. Automatic Completion & Distribution"
+              primaryTypographyProps={{ fontSize: '0.95rem', fontWeight: 500 }}
+              secondary="Completed PDF and receipt can be sent to all parties if selected"
+              secondaryTypographyProps={{ fontSize: '0.85rem' }}
             />
           </ListItem>
         </List>
 
-        <Divider sx={{ my: 3 }} />
-
         <Paper 
           elevation={0} 
           sx={{ 
-            p: 2, 
+            p: 1.5, 
             bgcolor: '#e3f2fd', 
             borderRadius: 1,
             border: '1px solid #90caf9',
+            mt: 2,
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <ArrowForward sx={{ color: '#1976d2' }} />
-            <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#1976d2' }}>
-              Quick Tip
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ArrowForward sx={{ color: '#1976d2', fontSize: 20 }} />
+            <Typography variant="body2" sx={{ color: '#424242' }}>
+              <strong>Tip:</strong> Fill your fields first, then use "Send To" to route the form through your workflow automatically.
             </Typography>
           </Box>
-          <Typography variant="body2" sx={{ color: '#424242' }}>
-            Start by filling in any fields you know, then use "Send To" to route the form to others 
-            who need to provide additional information. The form will move through your workflow automatically!
-          </Typography>
         </Paper>
 
-        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-start' }}>
+        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-start' }}>
           <FormControlLabel
             control={
               <Checkbox
                 checked={dontShowAgain}
                 onChange={(e) => setDontShowAgain(e.target.checked)}
                 color="primary"
+                size="small"
               />
             }
             label={
@@ -196,13 +181,13 @@ const SplashDialog: React.FC<SplashDialogProps> = ({ open, onClose }) => {
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ p: 3, bgcolor: 'white' }}>
+      <DialogActions sx={{ p: 2, bgcolor: 'white' }}>
         <Button
           onClick={handleClose}
           variant="contained"
-          size="large"
+          size="medium"
           sx={{
-            px: 4,
+            px: 3,
             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
             '&:hover': {
               background: 'linear-gradient(135deg, #5a67d8 0%, #6b4199 100%)',

@@ -11,6 +11,8 @@ import {
   Avatar,
   Tooltip,
   useTheme,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import {
   DragIndicator,
@@ -38,6 +40,8 @@ export interface RecipientData {
   npi?: string;
   officePhone?: string;
   fax?: string;
+  sendCompletedPdf?: boolean;
+  sendAuditDoc?: boolean;
 }
 
 interface RecipientCardProps {
@@ -420,6 +424,9 @@ const RecipientCard: React.FC<RecipientCardProps> = ({
           )}
         </Box>
 
+        {/* Distribution options */}
+        <DistributionOptions control={control} index={index} />
+
         {/* Additional info */}
         <Box sx={{ mt: 2, p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
           <Typography variant="caption" color="text.secondary">
@@ -432,6 +439,56 @@ const RecipientCard: React.FC<RecipientCardProps> = ({
         </Box>
       </CardContent>
     </Card>
+  );
+};
+
+// Separate component for distribution options to avoid hook call issues
+const DistributionOptions: React.FC<{ control: Control<any>; index: number }> = ({ control, index }) => {
+  const sendPdfField = useController({
+    control,
+    name: `recipients.${index}.sendCompletedPdf`,
+    defaultValue: false,
+  });
+
+  const sendAuditField = useController({
+    control,
+    name: `recipients.${index}.sendAuditDoc`,
+    defaultValue: false,
+  });
+
+  return (
+    <Box sx={{ mt: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={sendPdfField.field.value || false}
+            onChange={(e) => sendPdfField.field.onChange(e.target.checked)}
+            size="small"
+            color="primary"
+          />
+        }
+        label={
+          <Typography variant="body2">
+            Send completed PDF upon completion
+          </Typography>
+        }
+      />
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={sendAuditField.field.value || false}
+            onChange={(e) => sendAuditField.field.onChange(e.target.checked)}
+            size="small"
+            color="primary"
+          />
+        }
+        label={
+          <Typography variant="body2">
+            Send audit document upon completion
+          </Typography>
+        }
+      />
+    </Box>
   );
 };
 
