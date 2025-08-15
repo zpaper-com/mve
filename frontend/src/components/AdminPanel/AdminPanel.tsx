@@ -118,6 +118,8 @@ interface Workflow {
   metadata: any;
   recipients: any[];
   notifications: any[];
+  completed_pdf_path?: string;
+  audit_doc_path?: string;
 }
 
 interface MessageTemplate {
@@ -153,6 +155,13 @@ const AdminPanel: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
+  const [webhookResponseDialogOpen, setWebhookResponseDialogOpen] = useState(false);
+  const [webhookResponse, setWebhookResponse] = useState<{
+    statusCode: number;
+    data: any;
+    duration: number;
+    workflowId: string;
+  } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -249,13 +258,60 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleWebhookPost = async (workflow: Workflow) => {
+  const generateAuditDocs = async () => {
     setLoading(true);
     try {
-      console.log('🔗 Posting webhook for workflow:', workflow.id);
-      await axios.post(`/api/admin/webhook-post/${workflow.id}`);
-      setSuccess(`Webhook posted successfully for workflow ${workflow.uuid}`);
+      console.log('📄 Generating audit documents for all completed workflows...');
+      const response = await axios.post('/api/admin/generate-audit-docs');
+      const { generated, failed } = response.data;
+      setSuccess(`Audit documents generated: ${generated} successful, ${failed} failed`);
+      // Reload workflows to show updated audit links
+      await loadWorkflows();
     } catch (err) {
+      setError('Failed to generate audit documents');
+      console.error('Generate audit docs error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleWebhookPost = async (workflow: Workflow) => {
+    setLoading(true);
+    const startTime = Date.now();
+    
+    try {
+      console.log('🔗 Posting webhook for workflow:', workflow.id);
+      const response = await axios.post(`/api/admin/webhook-post/${workflow.id}`);
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
+      // Store response data for display
+      setWebhookResponse({
+        statusCode: response.status,
+        data: response.data,
+        duration: duration,
+        workflowId: workflow.id
+      });
+      
+      // Show the response dialog
+      setWebhookResponseDialogOpen(true);
+      
+      setSuccess(`Webhook posted successfully for workflow ${workflow.uuid}`);
+    } catch (err: any) {
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
+      // Store error response data for display
+      setWebhookResponse({
+        statusCode: err.response?.status || 0,
+        data: err.response?.data || { error: err.message },
+        duration: duration,
+        workflowId: workflow.id
+      });
+      
+      // Show the response dialog even for errors
+      setWebhookResponseDialogOpen(true);
+      
       setError('Failed to post webhook');
       console.error('Webhook post error:', err);
     } finally {
@@ -467,6 +523,15 @@ MVE PDF Workflow System`,
             </Button>
             <Button
               variant="outlined"
+              startIcon={<Analytics />}
+              onClick={generateAuditDocs}
+              disabled={loading}
+              sx={{ mr: 1 }}
+            >
+              Generate Audits
+            </Button>
+            <Button
+              variant="outlined"
               color="error"
               startIcon={<DeleteSweep />}
               onClick={() => setClearDialogOpen(true)}
@@ -521,6 +586,29 @@ MVE PDF Workflow System`,
                               }}
                             >
                               Download PDF
+                            </Button>
+                          )}
+                          {workflow.audit_doc_path && (
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              color="info"
+                              startIcon={<Analytics />}
+                              onClick={() => {
+                                // Convert filesystem path to web path
+                                const filename = workflow.audit_doc_path.split('/').pop();
+                                const webPath = `/audit_documents/${filename}`;
+                                window.open(webPath, '_blank');
+                              }}
+                              sx={{ 
+                                fontSize: '0.75rem',
+                                py: 0.5,
+                                px: 1,
+                                minWidth: 'auto',
+                                mr: 1
+                              }}
+                            >
+                              Download Audit
                             </Button>
                           )}
                           <Button
@@ -1318,6 +1406,127 @@ MVE PDF Workflow System`,
 
         <DialogActions>
           <Button onClick={() => setSignatureViewerOpen(false)}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Webhook Response Dialog */}
+      <Dialog
+        open={webhookResponseDialogOpen}
+        onClose={() => setWebhookResponseDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: { 
+            height: '80vh',
+            maxHeight: '600px',
+          },
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="h6" component="div">
+                Webhook Response
+              </Typography>
+              {webhookResponse && (
+                <Typography variant="body2" color="text.secondary">
+                  Workflow ID: {webhookResponse.workflowId}
+                </Typography>
+              )}
+            </Box>
+            <IconButton 
+              onClick={() => setWebhookResponseDialogOpen(false)}
+              sx={{ color: 'text.secondary' }}
+            >
+              <Cancel />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent dividers sx={{ p: 0 }}>
+          {webhookResponse && (
+            <Box sx={{ p: 3 }}>
+              {/* Response Summary */}
+              <Box sx={{ mb: 3, display: 'grid', gap: 2, gridTemplateColumns: '1fr 1fr 1fr' }}>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Status Code:
+                  </Typography>
+                  <Chip 
+                    label={webhookResponse.statusCode}
+                    color={
+                      webhookResponse.statusCode >= 200 && webhookResponse.statusCode < 300 ? 'success' :
+                      webhookResponse.statusCode >= 400 ? 'error' : 'warning'
+                    }
+                    sx={{ fontWeight: 600, fontSize: '1rem' }}
+                  />
+                </Box>
+                
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Response Time:
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontFamily: 'monospace' }}>
+                    {webhookResponse.duration}ms
+                  </Typography>
+                </Box>
+                
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Timestamp:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontSize: '0.9rem' }}>
+                    {new Date().toLocaleString()}
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Response Body */}
+              <Box>
+                <Typography variant="subtitle2" gutterBottom>
+                  Response Data:
+                </Typography>
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 2, 
+                    backgroundColor: webhookResponse.statusCode >= 200 && webhookResponse.statusCode < 300 ? '#f0f8f0' : '#fdf0f0',
+                    maxHeight: 300,
+                    overflow: 'auto',
+                    border: `1px solid ${
+                      webhookResponse.statusCode >= 200 && webhookResponse.statusCode < 300 ? '#4caf50' : '#f44336'
+                    }`
+                  }}
+                >
+                  <pre style={{ 
+                    margin: 0, 
+                    fontSize: '0.85rem', 
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {JSON.stringify(webhookResponse.data, null, 2)}
+                  </pre>
+                </Paper>
+              </Box>
+
+              {/* Additional Info */}
+              <Box sx={{ mt: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {webhookResponse.statusCode >= 200 && webhookResponse.statusCode < 300 
+                    ? '✅ Webhook posted successfully'
+                    : '❌ Webhook posting failed'
+                  } • Response received in {webhookResponse.duration}ms
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setWebhookResponseDialogOpen(false)}>
             Close
           </Button>
         </DialogActions>
