@@ -158,6 +158,30 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
       if (response.ok) {
         const result = await response.json();
         console.log('✅ Submission successful:', result.message);
+        
+        // Auto-trigger webhook post if this submission completed the workflow
+        if (result.workflowCompleted && result.workflowId) {
+          console.log('📤 Auto-triggering webhook post for completed workflow:', result.workflowId);
+          try {
+            const webhookResponse = await fetch(`/api/admin/webhook-post/${result.workflowId}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+            
+            if (webhookResponse.ok) {
+              const webhookResult = await webhookResponse.json();
+              console.log('✅ Webhook posted successfully:', webhookResult.message);
+            } else {
+              console.error('❌ Webhook posting failed:', webhookResponse.statusText);
+              const errorText = await webhookResponse.text();
+              console.error('❌ Webhook error details:', errorText);
+            }
+          } catch (webhookError) {
+            console.error('❌ Error posting webhook:', webhookError);
+          }
+        }
       } else {
         console.error('❌ Submission failed:', response.statusText);
       }
@@ -189,6 +213,35 @@ const PDFToolbar: React.FC<PDFToolbarProps> = ({ workflowContext, getCurrentForm
       if (response.ok) {
         const result = await response.json();
         console.log('✅ Completion successful:', result.message);
+        
+        // Auto-trigger webhook post only when workflow is fully completed
+        if (result.workflowCompleted && result.workflowId) {
+          console.log('📤 Auto-triggering webhook post for completed workflow:', result.workflowId);
+          try {
+            const webhookResponse = await fetch(`/api/admin/webhook-post/${result.workflowId}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+            
+            if (webhookResponse.ok) {
+              const webhookResult = await webhookResponse.json();
+              console.log('✅ Webhook posted successfully:', webhookResult.message);
+            } else {
+              console.error('❌ Webhook posting failed:', webhookResponse.statusText);
+              // Log the response text for debugging
+              const errorText = await webhookResponse.text();
+              console.error('❌ Webhook error details:', errorText);
+            }
+          } catch (webhookError) {
+            console.error('❌ Error posting webhook:', webhookError);
+          }
+        } else if (result.workflowCompleted) {
+          console.warn('⚠️ Workflow completed but no workflowId returned, cannot auto-post webhook');
+        } else {
+          console.log('ℹ️ Submission successful but workflow not yet completed - webhook will be triggered by final recipient');
+        }
       } else {
         console.error('❌ Completion failed:', response.statusText);
       }

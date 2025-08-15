@@ -499,28 +499,30 @@ MVE PDF Workflow System`,
                         color={getStatusColor(workflow.status) as any}
                         size="small"
                       />
-                      {workflow.status === 'completed' && workflow.completed_pdf_path && (
+                      {workflow.status === 'completed' && (
                         <>
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<PictureAsPdf />}
-                            onClick={() => {
-                              // Convert filesystem path to web path
-                              const filename = workflow.completed_pdf_path.split('/').pop();
-                              const webPath = `/completed_forms/${filename}`;
-                              window.open(webPath, '_blank');
-                            }}
-                            sx={{ 
-                              fontSize: '0.75rem',
-                              py: 0.5,
-                              px: 1,
-                              minWidth: 'auto',
-                              mr: 1
-                            }}
-                          >
-                            Download PDF
-                          </Button>
+                          {workflow.completed_pdf_path && (
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              startIcon={<PictureAsPdf />}
+                              onClick={() => {
+                                // Convert filesystem path to web path
+                                const filename = workflow.completed_pdf_path.split('/').pop();
+                                const webPath = `/completed_forms/${filename}`;
+                                window.open(webPath, '_blank');
+                              }}
+                              sx={{ 
+                                fontSize: '0.75rem',
+                                py: 0.5,
+                                px: 1,
+                                minWidth: 'auto',
+                                mr: 1
+                              }}
+                            >
+                              Download PDF
+                            </Button>
+                          )}
                           <Button
                             variant="outlined"
                             size="small"

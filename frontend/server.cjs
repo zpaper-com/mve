@@ -104,19 +104,40 @@ function generateWorkflowUUID() {
 // Helper function to get workflow with all form data
 async function getWorkflowWithFormData(workflowId) {
   try {
-    const workflow = await db.getWorkflowById(workflowId);
+    // Get workflow directly from database
+    const workflow = await new Promise((resolve, reject) => {
+      db.db.get(`SELECT * FROM workflows WHERE id = ?`, [workflowId], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+    
     if (!workflow) return null;
     
     // Add form data history from all recipients
     const recipients = await db.getRecipientsByWorkflow(workflowId);
+    console.log(`📊 Found ${recipients.length} recipients for workflow ${workflowId}`);
+    
     workflow.formDataHistory = recipients
-      .filter(r => r.form_data && r.status === 'completed')
-      .map(r => ({
-        recipient_name: r.recipient_name,
-        recipient_type: r.recipient_type,
-        form_data: typeof r.form_data === 'string' ? JSON.parse(r.form_data) : r.form_data,
-        submitted_at: r.submitted_at
-      }));
+      .filter(r => {
+        const hasData = r.form_data && r.status === 'completed';
+        if (hasData) {
+          console.log(`  ✓ Recipient "${r.recipient_name}" has form data (status: ${r.status})`);
+        } else {
+          console.log(`  ✗ Recipient "${r.recipient_name}" - form_data: ${!!r.form_data}, status: ${r.status}`);
+        }
+        return hasData;
+      })
+      .map(r => {
+        const parsedData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : r.form_data;
+        console.log(`    → Parsed ${Object.keys(parsedData).length} fields for ${r.recipient_name}`);
+        return {
+          recipient_name: r.recipient_name,
+          recipient_type: r.recipient_type,
+          form_data: parsedData,
+          submitted_at: r.submitted_at
+        };
+      });
     
     return workflow;
   } catch (error) {
@@ -138,6 +159,9 @@ async function generateCompletedPDF(workflowId) {
       return;
     }
     
+    console.log(`📋 Found workflow data with ${workflowData.formDataHistory ? workflowData.formDataHistory.length : 0} form submissions`);
+    console.log(`📄 Document URL: ${workflowData.document_url || workflowData.documentUrl}`);
+    
     // Generate the filled and flattened PDF
     const completedPdfPath = await pdfFiller.fillAndFlattenPDF(
       workflowData.document_url || workflowData.documentUrl,
@@ -155,6 +179,7 @@ async function generateCompletedPDF(workflowId) {
     
   } catch (error) {
     console.error(`❌ Error generating completed PDF for workflow ${workflowId}:`, error);
+    console.error('Stack trace:', error.stack);
   }
 }
 
@@ -851,7 +876,9 @@ app.post('/api/recipients/:token/submit', async (req, res) => {
         
         // Generate completed PDF form
         console.log(`🔧 Starting PDF form generation for completed workflow ${recipient.workflow_id}`);
-        generateCompletedPDF(recipient.workflow_id);
+        generateCompletedPDF(recipient.workflow_id).catch(error => {
+          console.error(`❌ Failed to generate completed PDF for workflow ${recipient.workflow_id}:`, error);
+        });
         
       } catch (statusError) {
         console.warn('⚠️ Failed to update workflow status to completed:', statusError);
@@ -866,6 +893,7 @@ app.post('/api/recipients/:token/submit', async (req, res) => {
       success: true,
       message: workflowCompleted ? 'Workflow completed successfully!' : 'Submission successful, next recipient notified',
       workflowCompleted,
+      workflowId: recipient.workflow_id, // Include workflowId for webhook triggering
       nextRecipient: nextRecipient ? {
         name: nextRecipient.recipient_name,
         email: nextRecipient.email
@@ -1042,6 +1070,49 @@ app.post('/api/admin/webhook-post/:workflowId', async (req, res) => {
     
     res.status(500).json({
       error: 'Failed to post webhook',
+      details: error.message
+    });
+  }
+});
+
+// Admin: Regenerate PDFs for completed workflows
+app.post('/api/admin/regenerate-pdfs', async (req, res) => {
+  try {
+    // Get all completed workflows without PDFs
+    const completedWorkflows = await new Promise((resolve, reject) => {
+      db.db.all(
+        `SELECT * FROM workflows WHERE status = 'completed' AND (completed_pdf_path IS NULL OR completed_pdf_path = '')`,
+        [],
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows || []);
+        }
+      );
+    });
+    
+    console.log(`📋 Found ${completedWorkflows.length} completed workflows without PDFs`);
+    
+    const results = [];
+    for (const workflow of completedWorkflows) {
+      console.log(`🔧 Regenerating PDF for workflow: ${workflow.id}`);
+      try {
+        await generateCompletedPDF(workflow.id);
+        results.push({ id: workflow.id, status: 'success' });
+      } catch (error) {
+        console.error(`❌ Failed to generate PDF for workflow ${workflow.id}:`, error);
+        results.push({ id: workflow.id, status: 'failed', error: error.message });
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Processed ${completedWorkflows.length} workflows`,
+      results: results
+    });
+  } catch (error) {
+    console.error('❌ Error regenerating PDFs:', error);
+    res.status(500).json({
+      error: 'Failed to regenerate PDFs',
       details: error.message
     });
   }

@@ -159,6 +159,13 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
           const recipientUrl = workflowData.recipientUrls.find((r: any) => r.recipientName === recipient.partyName);
           const workflowUrl = recipientUrl ? recipientUrl.url : workflowData.workflowUrl;
           
+          // Extract UUID from the full URL to avoid duplication
+          const extractUuidFromUrl = (url: string) => {
+            const match = url.match(/\/s\/([^\/\?]+)/);
+            return match ? match[1] : url;
+          };
+          const workflowUuid = extractUuidFromUrl(workflowUrl);
+          
           const response = await fetch('/api/send-sms', {
             method: 'POST',
             headers: {
@@ -169,7 +176,7 @@ const SendToDialog: React.FC<SendToDialogProps> = ({
               message: `Hi ${recipient.partyName}! You've been added to a PDF workflow. Please complete your portion when notified.`,
               recipientName: recipient.partyName,
               workflowId: workflowData.workflow.id,
-              workflowUuid: workflowUrl
+              workflowUuid: workflowUuid
             }),
           });
           

@@ -15,6 +15,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 import PDFViewer from './PDFViewer';
 import { usePDFStore } from '../../store';
+import SplashDialog from '../SplashDialog/SplashDialog';
 // import { DEFAULT_PDF_CONFIG } from '../../types/pdf';
 
 // Import recipient type configuration for title display
@@ -103,17 +104,27 @@ const PDFViewerDemo: React.FC = () => {
   const [currentRecipientToken, setCurrentRecipientToken] = useState<string | null>(null);
   const [currentRecipientType, setCurrentRecipientType] = useState<string | null>(null);
   const [currentRecipientName, setCurrentRecipientName] = useState<string | null>(null);
+  
+  // Splash dialog state - only show for /pdf route without UUID
+  const [showSplashDialog, setShowSplashDialog] = useState(false);
 
   // Fetch recipient data if token is present
   useEffect(() => {
     if (uuid) {
       setIsWorkflowContext(true);
       fetchRecipientData(uuid);
+      setShowSplashDialog(false);
     } else {
       setIsWorkflowContext(false);
       setWorkflowData(null);
       // Set title for guest users
       document.title = 'MVE Sprkz - Guest';
+      
+      // Show splash dialog for /pdf route without UUID (not from workflow)
+      const hideDialog = localStorage.getItem('hideSplashDialog');
+      if (hideDialog !== 'true') {
+        setShowSplashDialog(true);
+      }
     }
   }, [uuid]);
 
@@ -221,7 +232,11 @@ const PDFViewerDemo: React.FC = () => {
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
+      {/* Splash Dialog - only shown for /pdf route without UUID */}
+      <SplashDialog 
+        open={showSplashDialog} 
+        onClose={() => setShowSplashDialog(false)} 
+      />
 
       {/* Main PDF Viewer */}
       <Box sx={{ flex: 1, mx: 1, mb: 1, position: 'relative', minHeight: 0 }}>

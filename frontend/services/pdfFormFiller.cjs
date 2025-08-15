@@ -40,14 +40,43 @@ class PDFFormFillerService {
       
       console.log('📋 PDF loaded, available form fields:', form.getFields().length);
       
+      // List all available field names for debugging
+      const allFieldNames = form.getFields().map(f => f.getName());
+      console.log('📋 Available PDF field names (first 20):', allFieldNames.slice(0, 20));
+      
       // Combine all form data from all recipients
       const allFormData = this.combineWorkflowFormData(workflowData);
       
       console.log('📝 Combined form data keys:', Object.keys(allFormData).length);
-      console.log('📝 Sample fields:', Object.keys(allFormData).slice(0, 5));
+      console.log('📝 Form data field names (first 20):', Object.keys(allFormData).slice(0, 20));
+      console.log('📝 Sample values:', Object.entries(allFormData).slice(0, 5).map(([k, v]) => 
+        `${k}: ${typeof v === 'string' && v.startsWith('data:image/') ? '[IMAGE DATA]' : v}`
+      ));
+      
+      // Check for field name matches
+      const formDataKeys = Object.keys(allFormData);
+      const matchingFields = allFieldNames.filter(pdfField => formDataKeys.includes(pdfField));
+      console.log(`🔗 Matching fields between PDF and form data: ${matchingFields.length} out of ${allFieldNames.length} PDF fields`);
+      if (matchingFields.length > 0) {
+        console.log('🔗 Sample matching fields:', matchingFields.slice(0, 5));
+      }
 
       // Fill form fields
       await this.fillFormFields(form, allFormData, pdfDoc);
+
+      // Log a sample of filled fields to verify they're set
+      const fieldsAfterFilling = form.getFields();
+      console.log('🔍 Checking fields after filling:');
+      for (let i = 0; i < Math.min(5, fieldsAfterFilling.length); i++) {
+        const field = fieldsAfterFilling[i];
+        const fieldName = field.getName();
+        if (field.constructor.name === 'PDFTextField' && field.getText) {
+          const value = field.getText();
+          if (value) {
+            console.log(`  ✓ Field "${fieldName}" has value: "${value.substring(0, 50)}${value.length > 50 ? '...' : ''}"`);
+          }
+        }
+      }
 
       // Flatten the form (make it non-editable)
       form.flatten();
@@ -142,6 +171,7 @@ class PDFFormFillerService {
             } else {
               // Regular text field
               field.setText(String(value));
+              console.log(`✍️ Filled text field "${fieldName}" with: "${String(value).substring(0, 50)}${String(value).length > 50 ? '...' : ''}"`);
               filledCount++;
             }
             
