@@ -320,11 +320,16 @@ async function generateCompletedPDF(workflowId) {
     console.log(`📋 Found workflow data with ${workflowData.formDataHistory ? workflowData.formDataHistory.length : 0} form submissions`);
     console.log(`📄 Document URL: ${workflowData.document_url || workflowData.documentUrl}`);
     
-    // Generate the filled and flattened PDF
+    // Get attachments for this workflow
+    const attachments = await db.getAttachmentsByWorkflow(workflowId);
+    console.log(`📎 Found ${attachments.length} attachments for workflow`);
+    
+    // Generate the filled and flattened PDF with attachments
     const completedPdfPath = await pdfFiller.fillAndFlattenPDF(
       workflowData.document_url || workflowData.documentUrl,
       workflowData,
-      workflowId
+      workflowId,
+      attachments
     );
     
     // Get relative path for serving
@@ -1293,6 +1298,27 @@ app.post('/api/admin/regenerate-pdfs', async (req, res) => {
     console.error('❌ Error regenerating PDFs:', error);
     res.status(500).json({
       error: 'Failed to regenerate PDFs',
+      details: error.message
+    });
+  }
+});
+
+// Regenerate completed PDF for a specific workflow (admin endpoint)
+app.post('/api/admin/regenerate-pdf/:workflowId', async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    console.log(`🔧 Admin request to regenerate PDF for workflow: ${workflowId}`);
+    
+    await generateCompletedPDF(workflowId);
+    
+    res.json({
+      success: true,
+      message: `Completed PDF regenerated for workflow ${workflowId}`
+    });
+  } catch (error) {
+    console.error('❌ Error regenerating PDF:', error);
+    res.status(500).json({
+      error: 'Failed to regenerate PDF',
       details: error.message
     });
   }

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument, PDFTextField, PDFCheckBox, PDFSignature } = require('pdf-lib');
+const { PDFDocument, PDFTextField, PDFCheckBox, PDFSignature, rgb } = require('pdf-lib');
 
 class PDFFormFillerService {
   constructor() {
@@ -15,13 +15,14 @@ class PDFFormFillerService {
   }
 
   /**
-   * Fill PDF form with workflow data and flatten it
+   * Fill PDF form with workflow data, add attachments as pages, and flatten it
    * @param {string} sourceUrl - URL or path to the source PDF
    * @param {Object} workflowData - Complete workflow data with all recipients' form data
    * @param {string} workflowId - Workflow ID for filename
+   * @param {Array} attachments - Array of attachment objects (optional)
    * @returns {Promise<string>} Path to the flattened PDF
    */
-  async fillAndFlattenPDF(sourceUrl, workflowData, workflowId) {
+  async fillAndFlattenPDF(sourceUrl, workflowData, workflowId, attachments = []) {
     try {
       console.log('🔧 Starting PDF form filling for workflow:', workflowId);
       
@@ -76,6 +77,14 @@ class PDFFormFillerService {
             console.log(`  ✓ Field "${fieldName}" has value: "${value.substring(0, 50)}${value.length > 50 ? '...' : ''}"`);
           }
         }
+      }
+
+      // Add attachment pages if any attachments exist
+      if (attachments && attachments.length > 0) {
+        console.log(`📎 Adding ${attachments.length} attachments as additional pages`);
+        await this.addAttachmentPages(pdfDoc, attachments);
+      } else {
+        console.log('📎 No attachments to add');
       }
 
       // Flatten the form (make it non-editable)
@@ -358,6 +367,169 @@ class PDFFormFillerService {
       } catch (fallbackError) {
         console.warn(`⚠️ Could not set fallback text for ${fieldName}: ${fallbackError.message}`);
       }
+    }
+  }
+
+  /**
+   * Add attachment files as additional pages to the PDF
+   * @param {PDFDocument} pdfDoc - PDF document to add pages to
+   * @param {Array} attachments - Array of attachment objects
+   */
+  async addAttachmentPages(pdfDoc, attachments) {
+    try {
+      let addedPages = 0;
+      
+      for (const attachment of attachments) {
+        try {
+          console.log(`📄 Processing attachment: ${attachment.original_filename} (${attachment.mime_type})`);
+          
+          const attachmentPath = path.join(__dirname, '../uploads', attachment.stored_filename);
+          
+          // Check if file exists
+          if (!fs.existsSync(attachmentPath)) {
+            console.warn(`⚠️ Attachment file not found: ${attachmentPath}`);
+            continue;
+          }
+          
+          if (attachment.mime_type === 'application/pdf') {
+            // Handle PDF attachments - merge their pages
+            await this.addPDFAttachment(pdfDoc, attachmentPath, attachment.original_filename);
+            addedPages++;
+            
+          } else if (attachment.mime_type.startsWith('image/')) {
+            // Handle image attachments - add as image pages
+            await this.addImageAttachment(pdfDoc, attachmentPath, attachment.original_filename, attachment.mime_type);
+            addedPages++;
+            
+          } else {
+            console.warn(`⚠️ Unsupported attachment type: ${attachment.mime_type} for ${attachment.original_filename}`);
+          }
+          
+        } catch (attachmentError) {
+          console.error(`❌ Error processing attachment ${attachment.original_filename}:`, attachmentError.message);
+        }
+      }
+      
+      console.log(`✅ Added ${addedPages} attachment pages to PDF`);
+      
+    } catch (error) {
+      console.error('❌ Error adding attachment pages:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add PDF attachment by merging its pages
+   * @param {PDFDocument} targetDoc - Target PDF document
+   * @param {string} attachmentPath - Path to PDF attachment
+   * @param {string} filename - Original filename for logging
+   */
+  async addPDFAttachment(targetDoc, attachmentPath, filename) {
+    try {
+      console.log(`📄 Merging PDF attachment: ${filename}`);
+      
+      const pdfBytes = fs.readFileSync(attachmentPath);
+      const attachmentDoc = await PDFDocument.load(pdfBytes);
+      
+      // Copy all pages from the attachment PDF
+      const pageCount = attachmentDoc.getPageCount();
+      const pageIndices = Array.from({ length: pageCount }, (_, i) => i);
+      
+      const copiedPages = await targetDoc.copyPages(attachmentDoc, pageIndices);
+      
+      // Add a header page for this attachment
+      const headerPage = targetDoc.addPage();
+      const { width, height } = headerPage.getSize();
+      
+      // Add attachment header
+      headerPage.drawText(`ATTACHMENT: ${filename}`, {
+        x: 50,
+        y: height - 100,
+        size: 16,
+        color: rgb(0.2, 0.2, 0.2)
+      });
+      
+      headerPage.drawText(`Document contains ${pageCount} page(s)`, {
+        x: 50,
+        y: height - 130,
+        size: 12,
+        color: rgb(0.5, 0.5, 0.5)
+      });
+      
+      // Add all copied pages
+      copiedPages.forEach(page => targetDoc.addPage(page));
+      
+      console.log(`✅ Added PDF attachment: ${filename} (${pageCount} pages + 1 header page)`);
+      
+    } catch (error) {
+      console.error(`❌ Error adding PDF attachment ${filename}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Add image attachment as a new page
+   * @param {PDFDocument} pdfDoc - Target PDF document
+   * @param {string} attachmentPath - Path to image attachment
+   * @param {string} filename - Original filename for logging
+   * @param {string} mimeType - MIME type of the image
+   */
+  async addImageAttachment(pdfDoc, attachmentPath, filename, mimeType) {
+    try {
+      console.log(`🖼️ Adding image attachment: ${filename}`);
+      
+      const imageBytes = fs.readFileSync(attachmentPath);
+      
+      let image;
+      if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+        image = await pdfDoc.embedJpg(imageBytes);
+      } else if (mimeType === 'image/png') {
+        image = await pdfDoc.embedPng(imageBytes);
+      } else {
+        throw new Error(`Unsupported image type: ${mimeType}`);
+      }
+      
+      // Create new page with image
+      const page = pdfDoc.addPage();
+      const { width: pageWidth, height: pageHeight } = page.getSize();
+      
+      // Add attachment header
+      page.drawText(`ATTACHMENT: ${filename}`, {
+        x: 50,
+        y: pageHeight - 50,
+        size: 14,
+        color: rgb(0.2, 0.2, 0.2)
+      });
+      
+      // Calculate image dimensions to fit the page (leave space for header)
+      const availableHeight = pageHeight - 100; // Leave space for header
+      const availableWidth = pageWidth - 100;   // Leave margins
+      
+      const imageAspect = image.width / image.height;
+      let drawWidth = Math.min(availableWidth, image.width);
+      let drawHeight = drawWidth / imageAspect;
+      
+      if (drawHeight > availableHeight) {
+        drawHeight = availableHeight;
+        drawWidth = drawHeight * imageAspect;
+      }
+      
+      // Center the image
+      const x = (pageWidth - drawWidth) / 2;
+      const y = (availableHeight - drawHeight) / 2 + 50; // Account for header space
+      
+      page.drawImage(image, {
+        x,
+        y,
+        width: drawWidth,
+        height: drawHeight
+      });
+      
+      console.log(`✅ Added image attachment: ${filename} (${drawWidth.toFixed(0)}x${drawHeight.toFixed(0)} at ${x.toFixed(0)},${y.toFixed(0)})`);
+      
+    } catch (error) {
+      console.error(`❌ Error adding image attachment ${filename}:`, error.message);
+      throw error;
     }
   }
 
