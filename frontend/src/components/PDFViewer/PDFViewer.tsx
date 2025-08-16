@@ -495,8 +495,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         }
         
         if (annotationLayer) {
-          console.log('🔍 Clearing annotation layer due to canvas resize (this will clear form fields!)');
-          annotationLayer.innerHTML = '';
+          // Don't clear annotation layer on resize to preserve form data
+          // Just update the size
           annotationLayer.style.width = canvas.width + 'px';
           annotationLayer.style.height = canvas.height + 'px';
         }
@@ -555,7 +555,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           
           if (annotations.length > 0) {
             // Clear existing annotations
-            console.log('🔍 Clearing annotation layer for form rendering (this will clear form fields!)');
             annotationLayer.innerHTML = '';
             
             // Create viewport for annotations (don't flip y-axis)
@@ -1009,6 +1008,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
                 console.warn('Failed to extract form fields:', formError);
               }
             }
+            
           }
         } catch (annotationError) {
           console.warn('Failed to render annotation layer:', annotationError);
@@ -1194,6 +1194,52 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [currentPage, pdfDocument, setCurrentPage]);
+
+  // Simple, reliable form field population whenever workflow data changes
+  React.useEffect(() => {
+    if (!workflowContext?.isWorkflowContext || !allWorkflowFormData || Object.keys(allWorkflowFormData).length === 0) {
+      return;
+    }
+
+    // Simple function to populate any form fields that exist in the DOM
+    const populateFormFields = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      
+      const inputs = container.querySelectorAll('input, textarea, select');
+      let populatedCount = 0;
+      
+      inputs.forEach((input: any) => {
+        if (input.name && allWorkflowFormData[input.name] !== undefined) {
+          const value = allWorkflowFormData[input.name];
+          if (input.type === 'checkbox') {
+            input.checked = value === true || value === 'Yes' || value === 'true';
+          } else if (input.type === 'radio') {
+            input.checked = value === input.value;
+          } else {
+            input.value = String(value || '');
+          }
+          populatedCount++;
+        }
+      });
+      
+      if (populatedCount > 0) {
+        console.log(`✅ Populated ${populatedCount} form fields with workflow data`);
+      }
+    };
+
+    // Populate immediately
+    populateFormFields();
+    
+    // Also populate after short delays to catch late-rendered fields
+    const timer1 = setTimeout(populateFormFields, 100);
+    const timer2 = setTimeout(populateFormFields, 500);
+    
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [allWorkflowFormData, workflowContext]);
 
   // Load existing workflow form data only when in workflow context
   React.useEffect(() => {
