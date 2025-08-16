@@ -264,6 +264,13 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         console.log('🖊️ Signature data length:', signatureDataUrl.length);
         console.log('🖊️ Current recipient type:', workflowContext?.currentRecipientType);
         console.log('🖊️ Current signatures before save:', signatures);
+        
+        // Notify parent component of form data change
+        if (onFormDataChange) {
+          console.log('🖊️ Notifying parent of signature data change');
+          onFormDataChange(newFormData);
+        }
+        
         return newFormData;
       });
       
